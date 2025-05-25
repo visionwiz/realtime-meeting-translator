@@ -66,6 +66,10 @@ class MVPConfig:
             self.claude_model_name = env_model
         
         # Google Docs設定
+        env_docs_id = os.getenv("GOOGLE_DOCS_ID")
+        if env_docs_id:
+            self.google_docs_id = env_docs_id
+            
         env_credentials = os.getenv("GOOGLE_DOCS_CREDENTIALS_PATH")
         if env_credentials:
             self.google_credentials_path = env_credentials
