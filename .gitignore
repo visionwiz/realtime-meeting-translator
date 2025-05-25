@@ -172,3 +172,28 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# API Keys and sensitive files
+credentials.json
+token.json
+
+# Audio files
+*.wav
+*.mp3
+*.m4a
+
+# Log files
+logs/
+
+# Model files
+models/
+*.bin
+*.pt
+*.onnx
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Existing audio recognition system
+audio-recognition-system/
