@@ -11,6 +11,7 @@ import threading
 import time
 import queue
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -23,9 +24,12 @@ from utils.resource_manager import ResourceManager
 from language_config import LanguageConfig
 
 # MVP新規モジュール
-from config.mvp_config import MVPConfig, create_mvp_config_from_args
-from translation.claude_translator import ClaudeTranslator, TranslationResult
-from output.basic_google_docs_writer import BasicGoogleDocsWriter, MeetingEntry
+sys.path.append(os.path.join(os.path.dirname(__file__), 'config'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))  
+sys.path.append(os.path.join(os.path.dirname(__file__), 'output'))
+from mvp_config import MVPConfig, create_mvp_config_from_args
+from claude_translator import ClaudeTranslator, TranslationResult
+from basic_google_docs_writer import BasicGoogleDocsWriter, MeetingEntry
 
 # ログ設定
 logging.basicConfig(

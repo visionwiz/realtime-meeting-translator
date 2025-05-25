@@ -5,11 +5,28 @@
 
 **MVP戦略**: まず動かす、後で最適化する
 
+## 🚀 クイックスタート（新規ユーザー向け）
+
+### 5分で環境構築
+```bash
+# 1. 自動セットアップ実行
+chmod +x setup_mvp.sh && ./setup_mvp.sh
+
+# 2. 環境確認
+python check_environment.py
+
+# 3. セットアップ検証
+python test_setup.py
+```
+
+**詳細手順**: [QUICKSTART.md](QUICKSTART.md) | **完全ガイド**: [SETUP_GUIDE.md](SETUP_GUIDE.md)
+
 ## 機能
-- ✅ **音声認識**: OpenAI Whisper large-v3による高精度文字起こし
+- ✅ **音声認識**: MLX Whisper（macOS 3-10倍高速）/ OpenAI Whisper large-v3
 - ✅ **翻訳**: Claude 3.7 Sonnetによる自然な翻訳
 - ✅ **Google Docs出力**: リアルタイムでの会議記録自動生成
 - ✅ **多言語対応**: 日本語・英語・韓国語・中国語・スペイン語・フランス語・ドイツ語
+- ✅ **自動セットアップ**: ワンクリック環境構築
 
 ## システム要件
 - Python 3.8+
@@ -17,12 +34,66 @@
 - マイク（ヘッドセット推奨）
 - インターネット接続
 
+## 📁 プロジェクト構成
+
+### 🔧 環境構築ツール
+| ファイル | 説明 | 使用方法 |
+|----------|------|----------|
+| `setup_mvp.sh` | 自動セットアップスクリプト | `chmod +x setup_mvp.sh && ./setup_mvp.sh` |
+| `setup_api_keys.sh` | APIキー設定支援スクリプト | `chmod +x setup_api_keys.sh && ./setup_api_keys.sh` |
+| `check_environment.py` | 環境確認・診断ツール | `python check_environment.py --verbose` |
+| `test_setup.py` | セットアップ検証ツール | `python test_setup.py --full` |
+
+### 📚 ドキュメント
+| ファイル | 内容 | 対象者 |
+|----------|------|--------|
+| `QUICKSTART.md` | 5分構築ガイド | 新規ユーザー |
+| `SETUP_GUIDE.md` | 詳細セットアップ手順 | 全ユーザー |
+| `MVP_TEST_STATUS.md` | 現在のセットアップ状況 | 開発者・管理者 |
+
+### ⚙️ 依存関係ファイル
+| ファイル | 説明 | 使用場面 |
+|----------|------|----------|
+| `requirements_mvp.txt` | 基本依存関係 | 通常セットアップ |
+| `requirements_mvp_exact.txt` | 実環境ベース（バージョン固定） | 問題発生時の復旧 |
+| `requirements_mvp_freeze.txt` | 完全パッケージリスト | 詳細環境複製 |
+
+### 🎯 システム構成
+| ディレクトリ/ファイル | 説明 |
+|-------------------|------|
+| `main_mvp.py` | メインシステム（統合スクリプト） |
+| `config/mvp_config.py` | MVP設定管理クラス |
+| `translation/claude_translator.py` | Claude 3.7 Sonnet翻訳エンジン |
+| `output/basic_google_docs_writer.py` | Google Docs出力エンジン |
+| `recognition/speech_recognition.py` | 高性能音声認識（MLX最適化） |
+
 ## セットアップ
 
-### 1. 依存関係のインストール
+### 自動セットアップ（推奨）
 ```bash
-# MVP版依存関係をインストール
-pip install -r requirements_mvp.txt
+# 1. 依存関係の自動セットアップ
+./setup_mvp.sh
+
+# 2. APIキーの設定
+./setup_api_keys.sh
+
+# 3. セットアップ後の確認
+python check_environment.py
+python test_setup.py
+```
+
+### 手動セットアップ
+```bash
+# 1. 仮想環境作成・有効化
+python3 -m venv venv_mvp
+source venv_mvp/bin/activate
+
+# 2. 依存関係インストール（実環境ベース）
+pip install -r requirements_mvp_exact.txt
+
+# 3. Pythonパッケージ構造修正
+touch translation/__init__.py output/__init__.py
+rm -f config/__init__.py
 ```
 
 ### 2. Claude APIキーの取得
