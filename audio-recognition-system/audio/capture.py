@@ -48,14 +48,32 @@ class AudioCapture:
         if input_device is not None:
             return input_device
 
+        # デフォルトでは適切なマイクデバイスを優先選択
         p = pyaudio.PyAudio()
+        
+        # 1. ヘッドセットマイクを最優先
         for i in range(p.get_device_count()):
             info = p.get_device_info_by_index(i)
-            if "blackhole" in info["name"].lower():
+            if (info["maxInputChannels"] > 0 and 
+                ("headset" in info["name"].lower() or 
+                 "shokz" in info["name"].lower() or
+                 "opencomm" in info["name"].lower())):
                 return i
-            elif "Stereo Mix" in info["name"].lower():
+        
+        # 2. システムデフォルトデバイス（通常最初のマイク）
+        default_device = p.get_default_input_device_info()
+        if default_device:
+            return default_device["index"]
+        
+        # 3. 最後の手段：BlackHole等のミキサー
+        for i in range(p.get_device_count()):
+            info = p.get_device_info_by_index(i)
+            if (info["maxInputChannels"] > 0 and
+                ("blackhole" in info["name"].lower() or
+                 "Stereo Mix" in info["name"].lower() or
+                 "ステレオ ミキサー" in info["name"].lower())):
                 return i
-            elif "ステレオ ミキサー" in info["name"].lower():
-                return i
+        
+        p.terminate()
         return None
  

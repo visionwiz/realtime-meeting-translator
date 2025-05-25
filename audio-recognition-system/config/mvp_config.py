@@ -29,9 +29,12 @@ class MVPConfig:
     speaker_name: str
     
     # デバイス設定
-    input_device: Optional[int] = None
+    input_device: Optional[int] = 0  # デフォルト: Device 0（通常ヘッドセット）
     sample_rate: int = 16000
     chunk_size: int = 10  # 固定10秒（MVP版）
+    
+    # 音声認識モデル設定
+    speech_model: str = "large-v3"  # デフォルト: 最高精度
     
     # Claude API設定
     claude_api_key: Optional[str] = None
@@ -72,6 +75,13 @@ class MVPConfig:
             self.google_token_path = env_token
         
         # 音声設定（環境変数で上書き可能）
+        env_input_device = os.getenv("AUDIO_INPUT_DEVICE")
+        if env_input_device:
+            try:
+                self.input_device = int(env_input_device)
+            except ValueError:
+                logger.warning(f"不正なAUDIO_INPUT_DEVICE値: {env_input_device}")
+        
         env_chunk_size = os.getenv("AUDIO_CHUNK_SIZE")
         if env_chunk_size:
             try:
@@ -131,6 +141,10 @@ class MVPConfig:
         if self.sample_rate not in [16000, 44100, 48000]:
             errors.append(f"サポートされていないサンプルレート: {self.sample_rate}")
         
+        # 音声デバイス設定のチェック
+        if self.input_device is not None and self.input_device < 0:
+            errors.append(f"入力デバイスIDは0以上である必要があります: {self.input_device}")
+        
         # Google Docs設定のチェック（IDが指定されている場合）
         if self.google_docs_id:
             if not os.path.exists(self.google_credentials_path):
@@ -144,9 +158,10 @@ class MVPConfig:
         print(f"発話言語: {self.source_lang}")
         print(f"翻訳先言語: {self.target_lang}")
         print(f"発話者名: {self.speaker_name}")
-        print(f"入力デバイス: {self.input_device if self.input_device is not None else 'デフォルト'}")
+        print(f"入力デバイス: {self.input_device if self.input_device is not None else 'デフォルト'} (0=ヘッドセット推奨)")
         print(f"サンプリングレート: {self.sample_rate} Hz")
         print(f"チャンクサイズ: {self.chunk_size} 秒")
+        print(f"音声認識モデル: {self.speech_model}")
         print(f"Claudeモデル: {self.claude_model_name}")
         print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
         print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
@@ -167,10 +182,14 @@ def create_mvp_config_from_args(args) -> MVPConfig:
         source_lang=args.source_lang,
         target_lang=args.target_lang,
         speaker_name=args.speaker_name,
-        input_device=getattr(args, 'input_device', None),
+        speech_model=getattr(args, 'model', 'large-v3'),
         google_docs_id=getattr(args, 'google_docs_id', None),
         output_dir=getattr(args, 'output_dir', None)
     )
+    
+    # input_deviceは明示的に指定された場合のみ上書き
+    if hasattr(args, 'input_device') and args.input_device is not None:
+        config.input_device = args.input_device
     
     return config
 

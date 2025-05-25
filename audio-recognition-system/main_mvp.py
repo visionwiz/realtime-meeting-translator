@@ -59,12 +59,27 @@ class MVPAudioRecognitionSystem:
                 self.input_device = mvp_config.input_device
                 self.source_lang = mvp_config.source_lang
                 self.target_lang = mvp_config.target_lang
-                self.output_dir = mvp_config.output_dir
+                self.output_dir = mvp_config.output_dir or "logs"
                 # 既存システムで必要な値を設定
                 self.volume_threshold = 0.01
                 self.max_silence_duration = 3.0
                 self.min_audio_duration = 1.0
                 self.max_audio_duration = 30.0
+                # AudioConfig用の追加属性
+                self.format = "int16"
+                self.channels = 1
+                self.rate = mvp_config.sample_rate
+                self.chunk = 1024
+                self.buffer_duration = 5.0
+                # SpeechRecognition用の追加属性
+                self.model_size = "large-v3"
+                self.compute_type = "float16"
+                self.beam_size = 5
+                self.best_of = 5
+                self.temperature = 0.0
+                self.debug = False
+                self.save_raw_audio = False
+                self.save_processed_audio = False
         
         self.args = Args(mvp_config)
         
@@ -305,6 +320,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
         '--input-device', 
         type=int,
         help='音声入力デバイスのインデックス'
+    )
+    parser.add_argument(
+        '--model', 
+        choices=['tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3'],
+        default='large-v3',
+        help='音声認識モデル (デフォルト: large-v3)'
     )
     parser.add_argument(
         '--google-docs-id', 
