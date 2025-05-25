@@ -195,5 +195,4 @@ models/
 .DS_Store
 Thumbs.db
 
-# Existing audio recognition system
-audio-recognition-system/
+
