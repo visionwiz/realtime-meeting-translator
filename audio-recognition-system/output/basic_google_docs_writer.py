@@ -250,12 +250,13 @@ class BasicGoogleDocsWriter:
         Returns:
             str: フォーマット済みテキスト
         """
-        timestamp_str = entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        # タイムスタンプは時刻のみ（日付部分は削除）
+        timestamp_str = entry.timestamp.strftime("%H:%M:%S")
         
-        formatted_text = f"""
-[{timestamp_str}] {entry.speaker_name}:
-原文({entry.source_lang}): {entry.original_text}
-翻訳({entry.target_lang}): {entry.translated_text}
+        # 発話者名は削除、言語ラベルを簡略化
+        formatted_text = f"""[{timestamp_str}]
+{entry.source_lang}: {entry.original_text}
+{entry.target_lang}: {entry.translated_text}
 
 """
         

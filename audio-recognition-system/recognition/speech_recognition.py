@@ -83,6 +83,7 @@ class SpeechRecognition:
     def recognition_thread(self, is_running):
         last_text = ""
         last_text_time = 0
+        
         while is_running.is_set():
             try:
                 audio_data = self.processing_queue.get(timeout=1)
@@ -141,11 +142,24 @@ class SpeechRecognition:
                     print(f"音声認識エラー: {e}")
                     continue
                 
+                # no_speech_probチェック（幻聴防止）
+                no_speech_prob = 0.0
+                if 'segments' in result and len(result['segments']) > 0:
+                    no_speech_prob = result['segments'][0].get('no_speech_prob', 0.0)
+                
+                # 無音確率が高い場合は幻聴として破棄
+                NO_SPEECH_THRESHOLD = 0.5  # 50%以上の無音確率で破棄
+                if no_speech_prob > NO_SPEECH_THRESHOLD:
+                    if self.args.debug:
+                        print(f"🚫 幻聴検出: 無音確率 {no_speech_prob:.2f} > 閾値 {NO_SPEECH_THRESHOLD}")
+                    continue
+                
                 text = result['text'].strip()
                 
                 current_time = time.time()
                 if text and (text != last_text or current_time - last_text_time > 5):
                     self.print_with_strictly_controlled_linebreaks(text)
+                    last_text = text
                     last_text_time = current_time
                     if self.translation_queue:
                         self.translation_queue.put(text)
