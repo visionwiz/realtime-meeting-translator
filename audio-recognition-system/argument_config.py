@@ -9,14 +9,27 @@ def setup_model_args(parser: argparse.ArgumentParser) -> None:
         model_group.add_argument(
             "--model-path",
             type=str,
-            default="mlx-community/whisper-large-v3-turbo",
+            default="mlx-community/whisper-large-v3-mlx",
             help="Path or HuggingFace repo for the Whisper model"
+        )
+        # mlx-whisper最適化オプション
+        model_group.add_argument(
+            "--use-lightning-whisper",
+            action="store_true",
+            help="Use lightning-whisper-mlx for 10x speed boost (requires installation)"
+        )
+        model_group.add_argument(
+            "--quantization",
+            type=str,
+            choices=["none", "4bit", "8bit"],
+            default="none",
+            help="Model quantization for mlx-whisper (default: none)"
         )
     model_group.add_argument(
         "--model-size",
-        default="large-v3-turbo",
+        default="large-v3",
         choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "turbo"],
-        help="Model size for Whisper (default: large-v3-turbo)"
+        help="Model size for Whisper (default: large-v3)"
     )
 
 def setup_llm_args(parser: argparse.ArgumentParser) -> None:
