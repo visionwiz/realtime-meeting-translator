@@ -45,7 +45,7 @@ class AudioCapture:
 
     @staticmethod
     def get_input_device_index(input_device):
-        if input_device:
+        if input_device is not None:
             return input_device
 
         p = pyaudio.PyAudio()
