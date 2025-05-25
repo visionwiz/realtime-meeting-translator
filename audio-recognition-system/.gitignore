@@ -45,3 +45,21 @@ data/
 **/.DS_Store
 
 logs/
+
+# === MVP版追加セキュリティ設定 ===
+# Google Docs API認証ファイル（機密情報）
+credentials.json
+token.json
+
+# Claude API設定ファイル（機密情報）
+# .env は既に上記で除外されている
+
+# 一時的なAPI設定ファイル
+*.api_key
+*_credentials.json
+*_token.json
+
+# テスト用設定ファイル
+.env.test
+.env.local
+.env.dev
