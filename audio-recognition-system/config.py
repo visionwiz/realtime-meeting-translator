@@ -12,7 +12,7 @@ class AudioConfig:
         self.BUFFER_SIZE = int(self.RATE * self.BUFFER_DURATION)
         self.SILENCE_THRESHOLD = 0.005
         self.VOICE_ACTIVITY_THRESHOLD = 0.005  # MVP版: より低い音量でも音声として検出
-        self.SILENCE_DURATION = 3.0  # MVP版: 発話途切れ防止のため3秒に延長
+        self.SILENCE_DURATION = 2.0  # Phase1: 長い発話の途切れ防止のため2秒に短縮（最適設定）
 
     @staticmethod
     def get_format_from_string(format_str):
