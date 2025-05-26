@@ -97,7 +97,7 @@ pip install anthropic google-api-python-client pyaudio torch mlx-whisper
 python list_audio_devices.py
 
 # 特定デバイス指定
-python main_mvp.py --input-device 1 --source-lang ja --target-lang en --speaker-name "テスト"
+python main_mvp.py --input-device 0 --source-lang ja --target-lang en --speaker-name "テスト"
 ```
 
 ### ❌ API接続エラー

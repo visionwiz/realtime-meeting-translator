@@ -89,7 +89,7 @@ class MVPSetupTester:
         critical_packages = [
             ('anthropic', 'Claude API'),
             ('google.auth', 'Google認証'),
-            ('google.api_python_client', 'Google API'),
+            ('googleapiclient', 'Google API'),
             ('pyaudio', 'PyAudio'),
             ('torch', 'PyTorch'),
             ('transformers', 'Transformers'),

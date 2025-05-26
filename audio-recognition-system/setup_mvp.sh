@@ -189,9 +189,10 @@ log_info "システムモジュールインポートテストを実行中..."
 python -c "
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), 'config'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'output'))
+current_dir = os.getcwd()
+sys.path.append(os.path.join(current_dir, 'config'))
+sys.path.append(os.path.join(current_dir, 'translation'))
+sys.path.append(os.path.join(current_dir, 'output'))
 
 try:
     from mvp_config import MVPConfig
