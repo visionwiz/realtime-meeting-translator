@@ -87,34 +87,38 @@ python -m pip install --upgrade pip
 # 4. 依存関係のインストール
 log_info "依存関係をインストール中..."
 
-# Phase 1: 基本API関連パッケージ
-log_info "Phase 1: API関連パッケージをインストール中..."
-pip install anthropic google-api-python-client google-auth-httplib2 google-auth-oauthlib google-auth python-dotenv
-
-# Phase 2: 音声処理パッケージ
-log_info "Phase 2: 音声処理パッケージをインストール中..."
-pip install pyaudio sounddevice noisereduce
-
-# Phase 3: 機械学習パッケージ
-log_info "Phase 3: 機械学習パッケージをインストール中..."
-pip install torch transformers accelerate
-
-# Phase 4: macOS最適化パッケージ（条件付き）
-if [ "$MACOS_OPTIMIZED" = true ]; then
-    log_info "Phase 4: macOS最適化パッケージをインストール中..."
-    pip install mlx-lm mlx-whisper
-    log_success "macOS最適化パッケージをインストールしました（3-10倍高速化）"
+# requirements.txtを使用してパッケージをインストール
+if [ -f "requirements.txt" ]; then
+    log_info "requirements.txtから依存関係をインストール中..."
+    pip install -r requirements.txt
+    log_success "依存関係のインストールが完了しました（動作確認済みバージョン）"
 else
-    log_warning "macOS最適化パッケージはスキップしました"
-fi
+    log_warning "requirements.txtが見つかりません。手動インストールを実行します..."
+    
+    # フォールバック: 手動インストール
+    log_info "Phase 1: API関連パッケージをインストール中..."
+    pip install anthropic google-api-python-client google-auth-httplib2 google-auth-oauthlib google-auth python-dotenv
 
-# Phase 5: OpenAI Whisper（オプション・エラー時はスキップ）
-log_info "Phase 5: OpenAI Whisperをインストール中（エラー時はスキップ）..."
-if pip install openai-whisper >/dev/null 2>&1; then
-    log_success "OpenAI Whisperをインストールしました"
-else
-    log_warning "OpenAI Whisperのインストールに失敗しましたが、MLX Whisperで代替可能です"
-    log_info "音声認識にはMLX Whisper（3-10倍高速）を使用します"
+    log_info "Phase 2: 音声処理パッケージをインストール中..."
+    pip install pyaudio sounddevice noisereduce
+
+    log_info "Phase 3: 機械学習パッケージをインストール中..."
+    pip install torch transformers accelerate
+
+    # macOS最適化パッケージ（条件付き）
+    if [ "$MACOS_OPTIMIZED" = true ]; then
+        log_info "Phase 4: macOS最適化パッケージをインストール中..."
+        pip install mlx-lm mlx-whisper
+        log_success "macOS最適化パッケージをインストールしました（3-10倍高速化）"
+    fi
+
+    # OpenAI Whisper（オプション）
+    log_info "Phase 5: OpenAI Whisperをインストール中（エラー時はスキップ）..."
+    if pip install openai-whisper >/dev/null 2>&1; then
+        log_success "OpenAI Whisperをインストールしました"
+    else
+        log_warning "OpenAI Whisperのインストールに失敗しましたが、MLX Whisperで代替可能です"
+    fi
 fi
 
 # 5. Pythonパッケージ構造の修正

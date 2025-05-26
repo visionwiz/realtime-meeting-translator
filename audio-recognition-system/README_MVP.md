@@ -54,9 +54,7 @@ python test_setup.py
 ### ⚙️ 依存関係ファイル
 | ファイル | 説明 | 使用場面 |
 |----------|------|----------|
-| `requirements_mvp.txt` | 基本依存関係 | 通常セットアップ |
-| `requirements_mvp_exact.txt` | 実環境ベース（バージョン固定） | 問題発生時の復旧 |
-| `requirements_mvp_freeze.txt` | 完全パッケージリスト | 詳細環境複製 |
+| `requirements.txt` | 動作確認済み依存関係（固定バージョン） | 通常セットアップ・問題発生時の復旧 |
 
 ### 🎯 システム構成
 | ディレクトリ/ファイル | 説明 |
@@ -88,8 +86,8 @@ python test_setup.py
 python3 -m venv venv_mvp
 source venv_mvp/bin/activate
 
-# 2. 依存関係インストール（実環境ベース）
-pip install -r requirements_mvp_exact.txt
+# 2. 依存関係インストール（動作確認済みバージョン）
+pip install -r requirements.txt
 
 # 3. Pythonパッケージ構造修正
 touch translation/__init__.py output/__init__.py
