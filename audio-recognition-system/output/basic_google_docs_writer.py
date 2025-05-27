@@ -174,6 +174,173 @@ class BasicGoogleDocsWriter:
             logger.error(f"Google Docs API接続テストでエラー: {e}")
             return False
     
+    def insert_placeholder(self, speaker_name: str, placeholder_id: str) -> Optional[int]:
+        """
+        プレースホルダーをGoogle Docsに挿入
+        
+        Args:
+            speaker_name: 発話者名
+            placeholder_id: プレースホルダーの一意ID
+            
+        Returns:
+            Optional[int]: 挿入位置のインデックス（失敗時はNone）
+        """
+        if not self.document_id or not self.service:
+            logger.error("ドキュメントIDまたはサービスが初期化されていません")
+            return None
+        
+        try:
+            timestamp_str = datetime.now().strftime("%H:%M:%S")
+            # プレースホルダーを独立した段落として作成
+            placeholder_text = f"""[{timestamp_str}] {speaker_name}:
+🔄 音声認識・翻訳中... (ID: {placeholder_id})
+
+"""
+            
+            # ドキュメントの末尾位置を取得
+            doc = self.service.documents().get(documentId=self.document_id).execute()
+            content = doc.get('body', {}).get('content', [])
+            
+            end_index = 1
+            for element in content:
+                if 'endIndex' in element:
+                    end_index = max(end_index, element['endIndex'])
+            
+            # プレースホルダーを挿入
+            requests = [
+                {
+                    'insertText': {
+                        'location': {
+                            'index': end_index - 1
+                        },
+                        'text': placeholder_text
+                    }
+                }
+            ]
+            
+            self.service.documents().batchUpdate(
+                documentId=self.document_id,
+                body={'requests': requests}
+            ).execute()
+            
+            logger.info(f"プレースホルダー挿入完了: {placeholder_id}")
+            return end_index - 1  # 挿入位置を返す
+            
+        except Exception as e:
+            logger.error(f"プレースホルダー挿入エラー: {e}")
+            return None
+    
+    def update_placeholder(self, placeholder_id: str, entry: MeetingEntry) -> bool:
+        """
+        プレースホルダーを実際の翻訳内容に置き換え
+        
+        Args:
+            placeholder_id: 置き換え対象のプレースホルダーID
+            entry: 会議エントリー
+            
+        Returns:
+            bool: 更新成功の場合True
+        """
+        if not self.document_id or not self.service:
+            logger.error("ドキュメントIDまたはサービスが初期化されていません")
+            return False
+        
+        try:
+            # ドキュメント内容を取得
+            doc = self.service.documents().get(documentId=self.document_id).execute()
+            content = doc.get('body', {}).get('content', [])
+            
+            # プレースホルダーを検索（改善版）
+            target_text = f"🔄 音声認識・翻訳中... (ID: {placeholder_id})"
+            
+            # ドキュメント全体のテキストを結合してプレースホルダーの位置を特定
+            full_text = ""
+            text_elements = []
+            
+            for element in content:
+                if 'paragraph' in element:
+                    for text_run in element.get('paragraph', {}).get('elements', []):
+                        if 'textRun' in text_run:
+                            text_content = text_run['textRun'].get('content', '')
+                            full_text += text_content
+                            text_elements.append({
+                                'content': text_content,
+                                'startIndex': text_run['startIndex'],
+                                'endIndex': text_run['endIndex']
+                            })
+            
+            # プレースホルダー行の開始位置と終了位置を特定
+            placeholder_start_pos = full_text.find(target_text)
+            if placeholder_start_pos == -1:
+                logger.warning(f"プレースホルダーが見つかりません: {placeholder_id}")
+                return False
+            
+            placeholder_end_pos = placeholder_start_pos + len(target_text)
+            
+            # プレースホルダー行の改行も含めて削除（次の改行文字まで）
+            if placeholder_end_pos < len(full_text) and full_text[placeholder_end_pos] == '\n':
+                placeholder_end_pos += 1
+            
+            # テキスト要素のインデックスから実際のドキュメント位置を計算
+            doc_start_index = None
+            doc_end_index = None
+            current_pos = 0
+            
+            for text_elem in text_elements:
+                elem_len = len(text_elem['content'])
+                if doc_start_index is None and current_pos <= placeholder_start_pos < current_pos + elem_len:
+                    # プレースホルダー開始位置
+                    offset = placeholder_start_pos - current_pos
+                    doc_start_index = text_elem['startIndex'] + offset
+                
+                if doc_end_index is None and current_pos < placeholder_end_pos <= current_pos + elem_len:
+                    # プレースホルダー終了位置
+                    offset = placeholder_end_pos - current_pos
+                    doc_end_index = text_elem['startIndex'] + offset
+                    break
+                
+                current_pos += elem_len
+            
+            if doc_start_index is None or doc_end_index is None:
+                logger.warning(f"プレースホルダーの位置を特定できません: {placeholder_id}")
+                return False
+            
+            # 翻訳内容のみを生成（タイムスタンプと発話者名は含めない）
+            replacement_text = f"""{entry.source_lang}: {entry.original_text}
+{entry.target_lang}: {entry.translated_text}"""
+            
+            # プレースホルダー行のみを削除して翻訳内容に置き換え
+            requests = [
+                {
+                    'deleteContentRange': {
+                        'range': {
+                            'startIndex': doc_start_index,
+                            'endIndex': doc_end_index
+                        }
+                    }
+                },
+                {
+                    'insertText': {
+                        'location': {
+                            'index': doc_start_index
+                        },
+                        'text': replacement_text
+                    }
+                }
+            ]
+            
+            self.service.documents().batchUpdate(
+                documentId=self.document_id,
+                body={'requests': requests}
+            ).execute()
+            
+            logger.info(f"プレースホルダー更新完了: {placeholder_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"プレースホルダー更新エラー: {e}")
+            return False
+
     def write_meeting_entry(self, entry: MeetingEntry) -> bool:
         """
         会議エントリーをGoogle Docsに書き込み
@@ -253,8 +420,8 @@ class BasicGoogleDocsWriter:
         # タイムスタンプは時刻のみ（日付部分は削除）
         timestamp_str = entry.timestamp.strftime("%H:%M:%S")
         
-        # 発話者名は削除、言語ラベルを簡略化
-        formatted_text = f"""[{timestamp_str}]
+        # フォールバック書き込み用：完全なフォーマット
+        formatted_text = f"""[{timestamp_str}] {entry.speaker_name}:
 {entry.source_lang}: {entry.original_text}
 {entry.target_lang}: {entry.translated_text}
 

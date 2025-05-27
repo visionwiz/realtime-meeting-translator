@@ -14,6 +14,7 @@ import queue
 from datetime import datetime
 import signal
 from enum import Enum
+import uuid
 
 # シンプル実装
 from audio.simple_capture import SimpleAudioCapture
@@ -65,13 +66,34 @@ class SimpleAudioRecognitionSystem:
         # 音声認識結果を処理するキュー（1つだけ！）
         self.result_queue = queue.Queue()
         
+        # プレースホルダー管理
+        self.active_placeholders = {}  # {placeholder_id: timestamp}
+        self.current_placeholder_id = None  # 現在の音声認識セッション用のプレースホルダーID
+        
         # 音声認識結果のコールバック関数（表示は音声認識システム側に任せる）
         def recognition_callback(transcript, confidence, is_final):
-            if is_final and transcript.strip():
-                # 最終結果のみキューに追加（表示はしない）
-                self.result_queue.put(transcript)
-                # 音声が検出されたので無音タイマーをリセット
-                self.last_speech_time = time.time()
+            if transcript.strip():
+                if not is_final:
+                    # 途中結果でプレースホルダーを挿入（最初の途中結果のみ）
+                    if self.current_placeholder_id is None:
+                        placeholder_id = str(uuid.uuid4())[:8]  # 短縮ID
+                        placeholder_timestamp = time.time()  # プレースホルダー挿入時のタイムスタンプを保存
+                        if self.docs_writer and not self.mvp_config.disable_docs_output:
+                            self.docs_writer.insert_placeholder(self.mvp_config.speaker_name, placeholder_id)
+                            # タイムスタンプも保存
+                            self.active_placeholders[placeholder_id] = placeholder_timestamp
+                            self.current_placeholder_id = placeholder_id
+                            print(f"📝 プレースホルダー挿入: {placeholder_id}")
+                else:
+                    # 最終結果を翻訳処理用キューに追加
+                    self.result_queue.put((transcript, self.current_placeholder_id))
+                    print(f"🎯 最終結果とプレースホルダーID: {self.current_placeholder_id}")
+                    
+                    # 現在のプレースホルダーIDをリセット（次の音声認識用）
+                    self.current_placeholder_id = None
+                    
+                    # 音声が検出されたので無音タイマーをリセット
+                    self.last_speech_time = time.time()
             # 途中結果の表示も音声認識システム側に任せる
         
         # シンプル音声認識システム
@@ -162,6 +184,61 @@ class SimpleAudioRecognitionSystem:
                 time.sleep(2)
         
         print("🏁 タイムアウト監視スレッド終了")
+    
+    def keyboard_monitor_thread(self):
+        """キーボード入力監視スレッド（ストリーミング中のq/x停止用）"""
+        print("⌨️ キーボード監視スレッド開始")
+        
+        while self.is_running.is_set():
+            try:
+                with self.state_lock:
+                    if self.system_state == SystemState.SHUTTING_DOWN:
+                        print("🛑 キーボード監視スレッド: システム終了により終了")
+                        break
+                    elif self.system_state != SystemState.ACTIVE:
+                        # アクティブでない場合は1秒待機（一時停止中は専用の入力待機を使用）
+                        time.sleep(1)
+                        continue
+                
+                # 非ブロッキング入力チェック（stdin.readline()ではなくselect使用）
+                import select
+                import sys
+                
+                # 0.5秒タイムアウトで入力をチェック
+                if select.select([sys.stdin], [], [], 0.5)[0]:
+                    try:
+                        user_input = sys.stdin.readline().strip().lower()
+                        if user_input in ['q', 'x']:
+                            print(f"\n⌨️ キーボード停止コマンド受信: '{user_input}'")
+                            print("🛑 ユーザー要求によりシステムを停止します...")
+                            self._shutdown_system()
+                            return
+                        elif user_input:
+                            print(f"⌨️ 不明なコマンド: '{user_input}' (q/x で停止)")
+                    except:
+                        # 入力エラーの場合は無視
+                        pass
+                        
+            except Exception as e:
+                # selectが使えない環境への対応
+                try:
+                    import msvcrt  # Windows用
+                    if msvcrt.kbhit():
+                        key = msvcrt.getch().decode('utf-8').lower()
+                        if key in ['q', 'x']:
+                            print(f"\n⌨️ キーボード停止コマンド受信: '{key}'")
+                            print("🛑 ユーザー要求によりシステムを停止します...")
+                            self._shutdown_system()
+                            return
+                except ImportError:
+                    # selectもmsvcrtも使えない場合は短い間隔で状態チェックのみ
+                    time.sleep(0.5)
+                    continue
+                except Exception:
+                    time.sleep(0.5)
+                    continue
+        
+        print("🏁 キーボード監視スレッド終了")
     
     def _trigger_auto_pause(self, reason: PauseReason):
         """自動一時停止をトリガー"""
@@ -315,7 +392,14 @@ class SimpleAudioRecognitionSystem:
             try:
                 # 認識結果を取得
                 if not self.result_queue.empty():
-                    recognition_result = self.result_queue.get(timeout=1.0)
+                    result_data = self.result_queue.get(timeout=1.0)
+                    
+                    # 新しいタプル形式（transcript, placeholder_id）または従来の文字列形式に対応
+                    if isinstance(result_data, tuple):
+                        recognition_result, placeholder_id = result_data
+                    else:
+                        recognition_result = result_data
+                        placeholder_id = None
                     
                     if not recognition_result or not recognition_result.strip():
                         continue
@@ -350,10 +434,15 @@ class SimpleAudioRecognitionSystem:
                     )
                     
                     if translation_result.success:
+                        # プレースホルダーのタイムスタンプを取得
+                        entry_timestamp = datetime.now()  # デフォルト
+                        if placeholder_id and placeholder_id in self.active_placeholders:
+                            entry_timestamp = datetime.fromtimestamp(self.active_placeholders[placeholder_id])
+                        
                         # Google Docs出力
                         if self.docs_writer:
                             meeting_entry = MeetingEntry(
-                                timestamp=datetime.now(),
+                                timestamp=entry_timestamp,
                                 speaker_name=self.mvp_config.speaker_name,
                                 original_text=translation_result.original_text,
                                 translated_text=translation_result.translated_text,
@@ -361,13 +450,26 @@ class SimpleAudioRecognitionSystem:
                                 target_lang=self.mvp_config.target_lang
                             )
                             
-                            if self.docs_writer.write_meeting_entry(meeting_entry):
-                                print("📄 Google Docsに出力完了")
+                            # プレースホルダーがあれば更新、なければ通常の書き込み
+                            if placeholder_id and placeholder_id in self.active_placeholders:
+                                if self.docs_writer.update_placeholder(placeholder_id, meeting_entry):
+                                    print(f"📄 プレースホルダー更新完了: {placeholder_id}")
+                                    # 使用済みプレースホルダーを削除
+                                    del self.active_placeholders[placeholder_id]
+                                else:
+                                    print(f"❌ プレースホルダー更新失敗: {placeholder_id}")
+                                    # 失敗時は通常の書き込みにフォールバック
+                                    if self.docs_writer.write_meeting_entry(meeting_entry):
+                                        print("📄 フォールバック書き込み完了")
                             else:
-                                print("❌ Google Docs出力失敗")
+                                # プレースホルダーがない場合は通常の書き込み
+                                if self.docs_writer.write_meeting_entry(meeting_entry):
+                                    print("📄 Google Docsに出力完了")
+                                else:
+                                    print("❌ Google Docs出力失敗")
                         
-                        # コンソール出力
-                        self._print_result(translation_result)
+                        # コンソール出力（プレースホルダーのタイムスタンプを使用）
+                        self._print_result_with_timestamp(translation_result, entry_timestamp)
                     
                     else:
                         print(f"❌ 翻訳失敗: {translation_result.error_message}")
@@ -402,6 +504,13 @@ class SimpleAudioRecognitionSystem:
         print(f"翻訳({translation_result.target_lang}): {translation_result.translated_text}")
         print("-" * 50)
     
+    def _print_result_with_timestamp(self, translation_result: TranslationResult, timestamp: datetime):
+        """結果をコンソールに出力（タイムスタンプを使用）"""
+        print(f"\n[{timestamp.strftime('%H:%M:%S')}] {self.mvp_config.speaker_name}:")
+        print(f"原文({translation_result.source_lang}): {translation_result.original_text}")
+        print(f"翻訳({translation_result.target_lang}): {translation_result.translated_text}")
+        print("-" * 50)
+    
     def run(self):
         """システム実行（再接続機能付き）"""
         print("🚀 シンプル音声認識システム開始（再接続機能付き、無音自動一時停止機能付き）")
@@ -425,6 +534,7 @@ class SimpleAudioRecognitionSystem:
             threading.Thread(target=self.result_processing_thread),
             threading.Thread(target=self._continuous_speech_recognition_thread),  # 新しい継続的認識スレッド
             threading.Thread(target=self.timeout_monitor_thread),  # タイムアウト監視スレッド
+            threading.Thread(target=self.keyboard_monitor_thread),  # キーボード監視スレッド
         ]
         
         # スレッド開始
@@ -456,7 +566,7 @@ class SimpleAudioRecognitionSystem:
             print(f"🔔 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
             print(f"⏰ 実行時間制限: {self.MAX_RUNTIME//60}分で自動一時停止")
         
-        print("Ctrl+Cで終了")
+        print("Ctrl+C または 'q'/'x' + Enter で終了")
         
         # タイマー開始ログ
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
