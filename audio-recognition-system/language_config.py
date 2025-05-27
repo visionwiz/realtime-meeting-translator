@@ -6,6 +6,27 @@ class LanguageConfig:
     source_lang: str  # 音声認識および翻訳元の言語
     target_lang: str  # 翻訳先言語
     
+    def get_source_language(self) -> str:
+        """ソース言語コードを取得"""
+        return self.source_lang
+    
+    def get_source_language_code(self) -> str:
+        """Google Cloud Speech-to-Text用のソース言語コードを取得"""
+        lang_mapping = {
+            'ja': 'ja-JP',
+            'en': 'en-US', 
+            'ko': 'ko-KR',
+            'zh': 'zh-CN',
+            'es': 'es-ES',
+            'fr': 'fr-FR',
+            'de': 'de-DE'
+        }
+        return lang_mapping.get(self.source_lang, 'en-US')
+    
+    def get_target_language(self) -> str:
+        """ターゲット言語コードを取得"""
+        return self.target_lang
+    
     @staticmethod
     def get_language_name(lang_code: str) -> str:
         """言語コードから言語名を取得"""

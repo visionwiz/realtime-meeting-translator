@@ -54,6 +54,9 @@ class MVPConfig:
     disable_docs_output: bool = False
     transcription_only: bool = False
     
+    # ログ制御フラグ
+    verbose: bool = False
+    
     def __post_init__(self):
         """初期化後の処理"""
         # 環境変数から設定を読み込み
@@ -184,6 +187,7 @@ class MVPConfig:
                 print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
         
         print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
+        print(f"ログモード: {'詳細表示' if self.verbose else '簡潔表示'}")
         print("==================")
 
 
@@ -210,7 +214,8 @@ def create_mvp_config_from_args(args) -> MVPConfig:
         output_dir=getattr(args, 'output_dir', None),
         disable_translation=disable_translation,
         disable_docs_output=disable_docs_output,
-        transcription_only=getattr(args, 'transcription_only', False)
+        transcription_only=getattr(args, 'transcription_only', False),
+        verbose=getattr(args, 'verbose', False)
     )
     
     # input_deviceは明示的に指定された場合のみ上書き

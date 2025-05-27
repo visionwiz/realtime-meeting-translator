@@ -32,6 +32,7 @@ google-api-python-client==2.170.0
 google-auth==2.40.2
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.2
+google-cloud-speech==2.33.0
 googleapis-common-protos==1.70.0
 h11==0.16.0
 hf-xet==1.1.2

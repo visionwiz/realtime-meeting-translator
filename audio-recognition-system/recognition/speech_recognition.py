@@ -7,220 +7,192 @@ import time
 import numpy as np
 import pyaudio
 from language_config import LanguageConfig
+import io
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
-if sys.platform == 'darwin':
-    import mlx_whisper
-    try:
-        from lightning_whisper_mlx import LightningWhisperMLX
-        LIGHTNING_WHISPER_AVAILABLE = True
-    except ImportError:
-        LIGHTNING_WHISPER_AVAILABLE = False
-        print("Warning: lightning-whisper-mlx not available. Using standard mlx-whisper.")
-else:
-    import whisper
+# Google Cloud Speech-to-Text V2関連
+from google.cloud import speech_v2
+from google.api_core.client_options import ClientOptions
+import google.auth
+from google.auth.transport.requests import Request
 
-class SpeechRecognition:
+
+class GoogleCloudSpeechV2Recognition:
+    """Google Cloud Speech-to-Text API V2 + chirp_2を使用する音声認識クラス"""
+    
     def __init__(self, config, processing_queue, translation_queue, args, lang_config):
         self.config = config
         self.processing_queue = processing_queue
         self.translation_queue = translation_queue
         self.args = args
         self.lang_config = lang_config
-
-        # mlx-whisper最適化モデルの初期化
-        if sys.platform == 'darwin':
-            if getattr(args, 'use_lightning_whisper', False) and LIGHTNING_WHISPER_AVAILABLE:
-                print("🚀 Lightning Whisper MLX使用（10倍高速化）")
-                quantization = getattr(args, 'quantization', 'none')
-                quant = quantization if quantization != 'none' else None
-                # Lightning Whisper MLXでは多言語対応モデルを使用
-                model_name = "large-v3" if "large" in args.model_size else args.model_size
-                
-                try:
-                    # 量子化の互換性チェック
-                    if quant is not None:
-                        # まず量子化なしでモデルをロードしてから量子化を試行
-                        print(f"量子化（{quantization}）を試行中...")
-                        self.lightning_model = LightningWhisperMLX(
-                            model=model_name,
-                            batch_size=12,
-                            quant=None  # 最初は量子化なし
-                        )
-                        # 量子化は後で適用する（ランタイムで）
-                        self.quantization_mode = quantization
-                        print(f"⚡ Lightning Whisper初期化完了 - モデル: {args.model_size}, 量子化: {quantization}（実行時適用）")
-                    else:
-                        self.lightning_model = LightningWhisperMLX(
-                            model=model_name,
-                            batch_size=12,
-                            quant=None
-                        )
-                        self.quantization_mode = None
-                        print(f"⚡ Lightning Whisper初期化完了 - モデル: {args.model_size}, 量子化: なし")
-                    
-                    self.use_lightning = True
-                    
-                except Exception as e:
-                    print(f"⚠️ Lightning Whisper初期化エラー: {e}")
-                    print("標準MLX Whisperにフォールバック")
-                    self.use_lightning = False
-                    self.quantization_mode = None
-            else:
-                print("⚡ MLX Whisper使用（3-4倍高速化）")
-                self.use_lightning = False
-                print(f"MLX Whisper初期化完了 - モデル: {args.model_size}")
-        else:
-            self.model = whisper.load_model(self.args.model_size)
-            self.use_lightning = False
-
-        os.makedirs(self.args.output_dir, exist_ok=True)
-        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.log_file_path = os.path.join(
-            self.args.output_dir,
-            f"recognized_audio_log_{self.lang_config.source_lang}_{current_time}.txt"
-        )
-
-    def recognition_thread(self, is_running):
-        last_text = ""
-        last_text_time = 0
         
-        while is_running.is_set():
-            try:
-                audio_data = self.processing_queue.get(timeout=1)
-                normalized_audio = self.normalize_audio(audio_data)
-                
-                if self.args.debug:
-                    print("\n音声認識処理開始")
-                    self.save_audio_debug(audio_data, f"debug_audio_{time.time()}.wav")
-                
-                try:
-                    if sys.platform == 'darwin':
-                        if self.use_lightning:
-                            # Lightning Whisper MLX（10倍高速化）
-                            import tempfile
-                            import soundfile as sf
-                            start_time = time.time()
-                            try:
-                                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                                    sf.write(temp_file.name, normalized_audio, self.config.RATE)
-                                    result = self.lightning_model.transcribe(audio_path=temp_file.name)
-                                import os
-                                os.unlink(temp_file.name)
-                                processing_time = time.time() - start_time
-                                if self.args.debug:
-                                    print(f"⚡ Lightning Whisper処理時間: {processing_time:.2f}秒")
-                            except Exception as lightning_error:
-                                print(f"⚠️ Lightning Whisper処理エラー: {lightning_error}")
-                                # 標準mlx-whisperにフォールバック
-                                start_time = time.time()
-                                model_repo = getattr(self.args, 'model_path', None) or f"mlx-community/whisper-{self.args.model_size}-mlx"
-                                result = mlx_whisper.transcribe(normalized_audio,
-                                                                language=self.lang_config.source_lang,
-                                                                path_or_hf_repo=model_repo,
-                                                                verbose=False
-                                )
-                                processing_time = time.time() - start_time
-                                if self.args.debug:
-                                    print(f"⚡ フォールバックMLX Whisper処理時間: {processing_time:.2f}秒")
-                        else:
-                            # 標準mlx-whisper（3-4倍高速化）
-                            start_time = time.time()
-                            model_repo = getattr(self.args, 'model_path', None) or f"mlx-community/whisper-{self.args.model_size}-mlx"
-                            result = mlx_whisper.transcribe(normalized_audio,
-                                                            language=self.lang_config.source_lang,
-                                                            path_or_hf_repo=model_repo,
-                                                            verbose=False  # 高速化のため詳細出力を無効化
-                            )
-                            processing_time = time.time() - start_time
-                            if self.args.debug:
-                                print(f"⚡ MLX Whisper処理時間: {processing_time:.2f}秒")
-                    else:
-                        result = self.model.transcribe(normalized_audio,
-                                                       language=self.lang_config.source_lang
-                        )
-                except Exception as e:
-                    print(f"音声認識エラー: {e}")
-                    continue
-                
-                # no_speech_probチェック（幻聴防止）
-                no_speech_prob = 0.0
-                if 'segments' in result and len(result['segments']) > 0:
-                    no_speech_prob = result['segments'][0].get('no_speech_prob', 0.0)
-                
-                # 無音確率が高い場合は幻聴として破棄
-                NO_SPEECH_THRESHOLD = 0.5  # 50%以上の無音確率で破棄
-                if no_speech_prob > NO_SPEECH_THRESHOLD:
-                    if self.args.debug:
-                        print(f"🚫 幻聴検出: 無音確率 {no_speech_prob:.2f} > 閾値 {NO_SPEECH_THRESHOLD}")
-                    continue
-                
-                text = result['text'].strip()
-                
-                current_time = time.time()
-                if text and (text != last_text or current_time - last_text_time > 5):
-                    self.print_with_strictly_controlled_linebreaks(text)
-                    last_text = text
-                    last_text_time = current_time
-                    if self.translation_queue:
-                        self.translation_queue.put(text)
-                    # 認識結果をファイルに追記
-                    with open(self.log_file_path, "a", encoding="utf-8") as log_file:
-                        log_file.write(text + "\n")
-
-                elif self.args.debug:
-                    print("処理後のテキストが空か、直前の文と同じため出力をスキップします")
-
-            except queue.Empty:
-                if self.args.debug:
-                    print("認識キューが空です")
-            except Exception as e:
-                print(f"\nエラー (認識スレッド): {e}", flush=True)
-
-    def normalize_audio(self, audio_data):
-        if self.config.FORMAT == pyaudio.paFloat32:
-            return np.clip(audio_data, -1.0, 1.0)
-        elif self.config.FORMAT == pyaudio.paInt8:
-            return audio_data.astype(np.float32) / 128.0
-        elif self.config.FORMAT == pyaudio.paInt16:
-            return audio_data.astype(np.float32) / 32768.0
-        elif self.config.FORMAT == pyaudio.paInt32:
-            return audio_data.astype(np.float32) / 2147483648.0
-        else:
-            raise ValueError(f"Unsupported audio format: {self.config.FORMAT}")
-
-    def save_audio_debug(self, audio_data, filename):
-        with wave.open(filename, 'wb') as wf:
-            wf.setnchannels(self.config.CHANNELS)
-            wf.setsampwidth(pyaudio.get_sample_size(self.config.FORMAT))
-            wf.setframerate(self.config.RATE)
-            wf.writeframes(audio_data.tobytes())
-
-    @staticmethod
-    def is_sentence_end(word):
-        # 日本語と英語の文末記号
-        sentence_end_chars = ('.', '!', '?', '。', '！', '？')
-        return word.endswith(sentence_end_chars)
-
-    def print_with_strictly_controlled_linebreaks(self, text):
-        words = text.split()
-        buffer = []
-        final_output = ""
-        for i, word in enumerate(words):
-            buffer.append(word)
+        # プロジェクト設定
+        self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "meeting-voice-bridge")
+        self.region = "asia-southeast1"
+        
+        # Google Cloud Speech V2クライアント初期化
+        self.client_options = ClientOptions(
+            api_endpoint=f"{self.region}-speech.googleapis.com"
+        )
+        self.client = speech_v2.SpeechClient(client_options=self.client_options)
+        
+        # ストリーミング用キューとフラグ
+        self.streaming_queue = queue.Queue()
+        self.streaming_active = False
+        
+        print(f"🌩️ Google Cloud Speech-to-Text V2 + chirp_2 初期化完了")
+        print(f"   リージョン: {self.region}")
+        print(f"   言語: {lang_config.get_source_language_code()}")
+        print(f"   プロジェクト: {self.project_id}")
+    
+    def run_recognition_thread(self):
+        """音声認識メインスレッド"""
+        try:
+            # Streamingでchirp_2を使用
+            self._run_streaming_recognition()
+        except Exception as e:
+            print(f"⚠️ 音声認識エラー: {e}")
+            # フォールバック: 標準モデルを使用
+            self._run_standard_recognition()
+    
+    def _run_streaming_recognition(self):
+        """Google Cloud Speech V2 + chirp_2 ストリーミング認識"""
+        print("🌩️ Google Cloud Speech-to-Text V2 ストリーミング開始")
+        
+        # Recognizer リソースパス
+        recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
+        
+        # ストリーミング設定
+        streaming_config = speech_v2.types.StreamingRecognitionConfig(
+            config=speech_v2.types.RecognitionConfig(
+                auto_decoding_config=speech_v2.types.AutoDetectDecodingConfig(),
+                language_codes=[self.lang_config.get_source_language_code()],
+                model="chirp_2",
+                features=speech_v2.types.RecognitionFeatures(
+                    enable_automatic_punctuation=True,
+                    enable_word_time_offsets=True,
+                )
+            ),
+            streaming_features=speech_v2.types.StreamingRecognitionFeatures(
+                interim_results=True
+            )
+        )
+        
+        # 最初のリクエスト（設定のみ）
+        def request_generator():
+            # 設定リクエスト
+            yield speech_v2.types.StreamingRecognizeRequest(
+                recognizer=recognizer_name,
+                streaming_config=streaming_config
+            )
             
-            if SpeechRecognition.is_sentence_end(word) or i == len(words) - 1:
-                line = ' '.join(buffer)
-                final_output += line
-                if SpeechRecognition.is_sentence_end(word):
-                    final_output += '\n'
-                elif i == len(words) - 1:
-                    final_output += ' '
-                buffer = []
+            # 音声データリクエスト
+            while self.streaming_active:
+                try:
+                    data = self.streaming_queue.get(timeout=1.0)
+                    if data is None:  # 終了シグナル
+                        break
+                    yield speech_v2.types.StreamingRecognizeRequest(audio=data)
+                except queue.Empty:
+                    continue
+        
+        self.streaming_active = True
+        
+        try:
+            # ストリーミング認識実行
+            response_stream = self.client.streaming_recognize(request_generator())
+            
+            for response in response_stream:
+                if response.results:
+                    result = response.results[0]
+                    if result.alternatives:
+                        transcript = result.alternatives[0].transcript
+                        confidence = getattr(result.alternatives[0], 'confidence', 0.0)
+                        is_final = result.is_final
+                        
+                        if transcript.strip():
+                            print(f"🎯 認識結果 ({confidence:.2f}): {transcript}")
+                            
+                            if is_final:
+                                # 最終結果を処理
+                                self._process_final_result(transcript, confidence)
+                            else:
+                                # 中間結果を表示
+                                print(f"  📝 途中結果: {transcript}")
+                                
+        except Exception as e:
+            print(f"⚠️ ストリーミング認識エラー: {e}")
+            self.streaming_active = False
+    
+    def _run_standard_recognition(self):
+        """標準的な音声認識（フォールバック）"""
+        print("💡 標準の認識設定を使用します")
+        
+        try:
+            import speech_recognition as sr
+            
+            r = sr.Recognizer()
+            mic = sr.Microphone(device_index=self.args.input_device)
+            
+            print("音声認識待機中...")
+            
+            with mic as source:
+                r.adjust_for_ambient_noise(source)
+            
+            while True:
+                try:
+                    with mic as source:
+                        audio = r.listen(source, timeout=1, phrase_time_limit=10)
+                    
+                    # Google Speech-to-Textで認識
+                    text = r.recognize_google(audio, language=self.lang_config.get_source_language_code())
+                    
+                    if text.strip():
+                        print(f"🎯 認識結果: {text}")
+                        self._process_final_result(text, 0.8)
+                        
+                except sr.WaitTimeoutError:
+                    pass
+                except sr.UnknownValueError:
+                    pass
+                except sr.RequestError as e:
+                    print(f"⚠️ 認識リクエストエラー: {e}")
+                    time.sleep(1)
+                except KeyboardInterrupt:
+                    break
+                    
+        except ImportError:
+            print("⚠️ SpeechRecognitionライブラリが不足しています")
+    
+    def _process_final_result(self, transcript, confidence):
+        """最終認識結果の処理"""
+        current_time = datetime.datetime.now()
+        
+        # 認識結果をキューに追加
+        recognition_data = {
+            'timestamp': current_time,
+            'text': transcript,
+            'confidence': confidence,
+            'speaker': self.args.speaker_name,
+            'language': self.lang_config.get_source_language()
+        }
+        
+        # 翻訳システムのために、文字列を旧システム形式で送信
+        self.translation_queue.put(transcript)
+    
+    def add_audio_data(self, audio_data):
+        """音声データを認識キューに追加"""
+        if self.streaming_active:
+            self.streaming_queue.put(audio_data)
+    
+    def stop_recognition(self):
+        """音声認識を停止"""
+        self.streaming_active = False
+        self.streaming_queue.put(None)  # 終了シグナル
+        print("🌩️ Google Cloud Speech-to-Text V2 認識停止")
 
-        if buffer:
-            line = ' '.join(buffer)
-            final_output += line
-
-        # コンソールに出力
-        print(final_output, end='', flush=True)
+# 既存のSpeechRecognitionクラスを置き換える
+SpeechRecognition = GoogleCloudSpeechV2Recognition
 

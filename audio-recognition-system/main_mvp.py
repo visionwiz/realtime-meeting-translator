@@ -12,6 +12,7 @@ import time
 import queue
 import logging
 import os
+import numpy as np
 from datetime import datetime
 from typing import Optional
 
@@ -77,7 +78,7 @@ class MVPAudioRecognitionSystem:
                 self.beam_size = 5
                 self.best_of = 5
                 self.temperature = 0.0
-                self.debug = False
+                self.debug = True
                 self.save_raw_audio = False
                 self.save_processed_audio = False
         
@@ -106,6 +107,9 @@ class MVPAudioRecognitionSystem:
         self.speech_recognition = SpeechRecognition(
             self.config, self.processing_queue, self.recognition_queue, self.args, self.lang_config
         )
+        
+        # Google Cloud Speech V2ストリーミング用の音声データ中継設定
+        self.streaming_bridge_active = True
         
         # 音声認識専用モード用のログファイル設定
         if mvp_config.transcription_only:
@@ -146,6 +150,50 @@ class MVPAudioRecognitionSystem:
                 logger.info("Google Docs出力を無効化（ドキュメントID未指定）")
         
         logger.info("MVP音声認識システム初期化完了")
+    
+    def streaming_bridge_thread(self):
+        """処理された音声データをGoogle Cloud Speech V2ストリーミングに送信するブリッジスレッド"""
+        logger.info("音声ストリーミングブリッジスレッド開始")
+        
+        while self.streaming_bridge_active and self.is_running.is_set():
+            try:
+                # 処理済み音声データを取得
+                audio_data = self.processing_queue.get(timeout=1.0)
+                
+                if audio_data is not None:
+                    # 音声データをバイト形式に変換してストリーミングAPIに送信
+                    if isinstance(audio_data, np.ndarray):
+                        # float32をint16に変換
+                        if audio_data.dtype == np.float32:
+                            audio_int16 = (audio_data * 32767).astype(np.int16)
+                        else:
+                            audio_int16 = audio_data.astype(np.int16)
+                        
+                        # バイトデータに変換
+                        audio_bytes = audio_int16.tobytes()
+                        
+                        # Google Cloud Speech V2の制限（25,600バイト）に合わせてチャンクを分割
+                        max_chunk_size = 25600
+                        chunk_count = 0
+                        for i in range(0, len(audio_bytes), max_chunk_size):
+                            chunk = audio_bytes[i:i + max_chunk_size]
+                            # Google Cloud Speech V2ストリーミングに送信
+                            self.speech_recognition.add_audio_data(chunk)
+                            chunk_count += 1
+                            
+                            if self.args.debug:
+                                print(f"🔗 チャンク{chunk_count}送信: {len(chunk)}バイト (元サイズ: {len(audio_bytes)})")
+                        
+                        if self.args.debug and chunk_count > 1:
+                            print(f"✅ 分割完了: {chunk_count}チャンクに分割")
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"ストリーミングブリッジエラー: {e}")
+                time.sleep(0.1)
+        
+        logger.info("音声ストリーミングブリッジスレッド終了")
     
     def translation_and_output_thread(self):
         """翻訳とGoogle Docs出力を処理するスレッド"""
@@ -296,7 +344,8 @@ class MVPAudioRecognitionSystem:
         threads = [
             threading.Thread(target=self.audio_capture.capture_thread, args=(self.is_running,)),
             threading.Thread(target=self.audio_processing.processing_thread, args=(self.is_running,)),
-            threading.Thread(target=self.speech_recognition.recognition_thread, args=(self.is_running,)),
+            threading.Thread(target=self.streaming_bridge_thread),
+            threading.Thread(target=self.speech_recognition.run_recognition_thread),
         ]
         
         # 翻訳・出力スレッドまたは音声認識専用スレッドを追加
@@ -334,6 +383,8 @@ class MVPAudioRecognitionSystem:
             print("\n\n終了処理中...")
             logger.info("終了シグナル受信")
             self.is_running.clear()
+            self.streaming_bridge_active = False
+            self.speech_recognition.stop_recognition()
         
         # スレッド終了待ち
         for thread in threads:
@@ -348,7 +399,7 @@ class MVPAudioRecognitionSystem:
         logger.info("API接続テスト開始")
         
         # Claude翻訳テスト（翻訳機能が有効な場合のみ）
-        if self.translator:
+        if hasattr(self, 'translator') and self.translator:
             if not self.translator.test_connection():
                 logger.error("Claude API接続テスト失敗")
                 return False
@@ -357,7 +408,7 @@ class MVPAudioRecognitionSystem:
             logger.info("🚫 Claude翻訳テストをスキップ（翻訳機能無効）")
         
         # Google Docs接続テスト（出力機能が有効な場合のみ）
-        if self.docs_writer:
+        if hasattr(self, 'docs_writer') and self.docs_writer:
             if not self.docs_writer.test_connection():
                 logger.error("Google Docs API接続テスト失敗")
                 return False
