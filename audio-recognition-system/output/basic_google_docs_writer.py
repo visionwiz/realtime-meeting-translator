@@ -193,7 +193,7 @@ class BasicGoogleDocsWriter:
             timestamp_str = datetime.now().strftime("%H:%M:%S")
             # プレースホルダーを独立した段落として作成
             placeholder_text = f"""[{timestamp_str}] {speaker_name}:
-🔄 音声認識・翻訳中... (ID: {placeholder_id})
+🔄 Translating... / 翻訳中... (ID: {placeholder_id})
 
 """
             
@@ -251,7 +251,7 @@ class BasicGoogleDocsWriter:
             content = doc.get('body', {}).get('content', [])
             
             # プレースホルダーを検索（改善版）
-            target_text = f"🔄 音声認識・翻訳中... (ID: {placeholder_id})"
+            target_text = f"🔄 Translating... / 翻訳中... (ID: {placeholder_id})"
             
             # ドキュメント全体のテキストを結合してプレースホルダーの位置を特定
             full_text = ""
@@ -306,8 +306,8 @@ class BasicGoogleDocsWriter:
                 return False
             
             # 翻訳内容のみを生成（タイムスタンプと発話者名は含めない）
-            replacement_text = f"""{entry.source_lang}: {entry.original_text}
-{entry.target_lang}: {entry.translated_text}"""
+            replacement_text = f"""({entry.source_lang}): {entry.original_text}
+({entry.target_lang}): {entry.translated_text}"""
             
             # プレースホルダー行のみを削除して翻訳内容に置き換え
             requests = [
@@ -422,8 +422,8 @@ class BasicGoogleDocsWriter:
         
         # フォールバック書き込み用：完全なフォーマット
         formatted_text = f"""[{timestamp_str}] {entry.speaker_name}:
-{entry.source_lang}: {entry.original_text}
-{entry.target_lang}: {entry.translated_text}
+({entry.source_lang}): {entry.original_text}
+({entry.target_lang}): {entry.translated_text}
 
 """
         
@@ -449,10 +449,10 @@ class BasicGoogleDocsWriter:
         target_lang = session_info.get('target_lang', 'unknown')
         
         header_text = f"""
-=== リアルタイム会議翻訳セッション開始 ===
-開始時刻: {start_time}
-発話者: {speaker}
-翻訳方向: {source_lang} → {target_lang}
+=== Real-time Meeting Translation Session Started / リアルタイム会議翻訳セッション開始 ===
+Start Time / 開始時刻: {start_time}
+Speaker / 発話者: {speaker}
+Translation Direction / 翻訳方向: {source_lang} → {target_lang}
 =======================================
 
 """
