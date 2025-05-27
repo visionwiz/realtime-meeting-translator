@@ -140,11 +140,37 @@ token.json
 
 ### 基本的な使用
 ```bash
-# 音声認識のみ（Google Docs出力なし）
+# 音声認識・翻訳・Google Docs出力
 python main_mvp.py \
   --source-lang ja \
   --target-lang en \
-  --speaker-name "田中太郎"
+  --speaker-name "田中太郎" \
+  --google-docs-id "YOUR_DOCUMENT_ID"
+```
+
+### 発話捕捉率テスト（推奨）
+```bash
+# 音声認識のみ（最高速・リソース節約）
+python main_mvp.py \
+  --source-lang ja \
+  --target-lang en \
+  --speaker-name "田中太郎" \
+  --transcription-only
+
+# 翻訳無効化（Google Docs出力のみ有効）
+python main_mvp.py \
+  --source-lang ja \
+  --target-lang en \
+  --speaker-name "田中太郎" \
+  --google-docs-id "YOUR_DOCUMENT_ID" \
+  --disable-translation
+
+# Google Docs出力無効化（翻訳のみ有効）
+python main_mvp.py \
+  --source-lang ja \
+  --target-lang en \
+  --speaker-name "田中太郎" \
+  --disable-docs-output
 ```
 
 ### Google Docs出力付き
@@ -183,8 +209,14 @@ python main_mvp.py \
 
 ### オプション引数
 - `--input-device`: 音声入力デバイスのインデックス
+- `--model`: 音声認識モデル (tiny, base, small, medium, large-v2, large-v3)
 - `--google-docs-id`: Google DocsドキュメントID
 - `--output-dir`: ログ出力ディレクトリ
+
+### 機能無効化オプション
+- `--disable-translation`: 翻訳機能を無効化（音声認識のみ実行）
+- `--disable-docs-output`: Google Docs出力を無効化
+- `--transcription-only`: 音声認識のみ実行（翻訳・出力を無効化）
 
 ## 推奨デバイス設定
 

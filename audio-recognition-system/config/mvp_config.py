@@ -49,6 +49,11 @@ class MVPConfig:
     output_dir: Optional[str] = None
     log_level: str = "INFO"
     
+    # 機能無効化フラグ
+    disable_translation: bool = False
+    disable_docs_output: bool = False
+    transcription_only: bool = False
+    
     def __post_init__(self):
         """初期化後の処理"""
         # 環境変数から設定を読み込み
@@ -124,7 +129,7 @@ class MVPConfig:
         if not self.speaker_name:
             errors.append("発話者名（speaker_name）が指定されていません")
         
-        if not self.claude_api_key:
+        if not self.disable_translation and not self.claude_api_key:
             errors.append("Claude APIキー（CLAUDE_API_KEY）が設定されていません")
         
         # 言語設定のチェック
@@ -135,7 +140,7 @@ class MVPConfig:
         if self.target_lang not in supported_langs:
             errors.append(f"サポートされていない翻訳先言語: {self.target_lang}")
         
-        if self.source_lang == self.target_lang:
+        if not self.disable_translation and self.source_lang == self.target_lang:
             errors.append("発話言語と翻訳先言語が同じです")
         
         # 音声設定のチェック
@@ -166,8 +171,18 @@ class MVPConfig:
         print(f"サンプリングレート: {self.sample_rate} Hz")
         print(f"チャンクサイズ: {self.chunk_size} 秒")
         print(f"音声認識モデル: {self.speech_model}")
-        print(f"Claudeモデル: {self.claude_model_name}")
-        print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
+        
+        # 機能有効/無効状態を表示
+        if self.transcription_only:
+            print("動作モード: 音声認識専用（翻訳・出力無効）")
+        else:
+            print(f"翻訳機能: {'無効' if self.disable_translation else '有効'}")
+            if not self.disable_translation:
+                print(f"Claudeモデル: {self.claude_model_name}")
+            print(f"Google Docs出力: {'無効' if self.disable_docs_output else '有効'}")
+            if not self.disable_docs_output:
+                print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
+        
         print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
         print("==================")
 
@@ -182,13 +197,20 @@ def create_mvp_config_from_args(args) -> MVPConfig:
     Returns:
         MVPConfig: 設定オブジェクト
     """
+    # transcription_onlyが指定された場合は他の無効化フラグも自動設定
+    disable_translation = getattr(args, 'transcription_only', False) or getattr(args, 'disable_translation', False)
+    disable_docs_output = getattr(args, 'transcription_only', False) or getattr(args, 'disable_docs_output', False)
+    
     config = MVPConfig(
         source_lang=args.source_lang,
         target_lang=args.target_lang,
         speaker_name=args.speaker_name,
         speech_model=getattr(args, 'model', 'large-v3'),
         google_docs_id=getattr(args, 'google_docs_id', None),
-        output_dir=getattr(args, 'output_dir', None)
+        output_dir=getattr(args, 'output_dir', None),
+        disable_translation=disable_translation,
+        disable_docs_output=disable_docs_output,
+        transcription_only=getattr(args, 'transcription_only', False)
     )
     
     # input_deviceは明示的に指定された場合のみ上書き

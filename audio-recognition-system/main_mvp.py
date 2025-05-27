@@ -107,12 +107,28 @@ class MVPAudioRecognitionSystem:
             self.config, self.processing_queue, self.recognition_queue, self.args, self.lang_config
         )
         
+        # 音声認識専用モード用のログファイル設定
+        if mvp_config.transcription_only:
+            import datetime
+            current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = mvp_config.output_dir or "logs"
+            os.makedirs(output_dir, exist_ok=True)
+            self.transcription_log_path = os.path.join(
+                output_dir,
+                f"transcription_only_{mvp_config.source_lang}_{current_time}.txt"
+            )
+        
         # 翻訳システム（新規）
-        self.translator = ClaudeTranslator(mvp_config.claude_api_key, mvp_config.claude_model_name)
+        self.translator = None
+        if not mvp_config.disable_translation:
+            self.translator = ClaudeTranslator(mvp_config.claude_api_key, mvp_config.claude_model_name)
+            logger.info("翻訳機能を有効化")
+        else:
+            logger.info("翻訳機能を無効化")
         
         # Google Docs出力（新規）
         self.docs_writer = None
-        if mvp_config.google_docs_id:
+        if not mvp_config.disable_docs_output and mvp_config.google_docs_id:
             try:
                 self.docs_writer = BasicGoogleDocsWriter(
                     mvp_config.google_credentials_path,
@@ -123,6 +139,11 @@ class MVPAudioRecognitionSystem:
             except Exception as e:
                 logger.error(f"Google Docs初期化エラー: {e}")
                 self.docs_writer = None
+        else:
+            if mvp_config.disable_docs_output:
+                logger.info("Google Docs出力を無効化")
+            else:
+                logger.info("Google Docs出力を無効化（ドキュメントID未指定）")
         
         logger.info("MVP音声認識システム初期化完了")
     
@@ -151,6 +172,14 @@ class MVPAudioRecognitionSystem:
                     
                     logger.info(f"音声認識結果: {recognition_result}")
                     
+                    # 翻訳機能が無効な場合は認識結果のみ出力
+                    if self.mvp_config.disable_translation:
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        print(f"\n[{timestamp}] {self.mvp_config.speaker_name}:")
+                        print(f"認識結果({self.mvp_config.source_lang}): {recognition_result}")
+                        print("-" * 50)
+                        continue
+                    
                     # Claude翻訳実行
                     translation_result = self.translator.translate(
                         recognition_result,
@@ -161,8 +190,8 @@ class MVPAudioRecognitionSystem:
                     if translation_result.success:
                         logger.info(f"翻訳成功: {translation_result.translated_text}")
                         
-                        # Google Docs出力
-                        if self.docs_writer:
+                        # Google Docs出力（出力機能が有効な場合のみ）
+                        if self.docs_writer and not self.mvp_config.disable_docs_output:
                             meeting_entry = MeetingEntry(
                                 timestamp=datetime.now(),
                                 speaker_name=self.mvp_config.speaker_name,
@@ -182,8 +211,8 @@ class MVPAudioRecognitionSystem:
                     
                     else:
                         logger.error(f"翻訳失敗: {translation_result.error_message}")
-                        # 翻訳失敗時は原文のみ出力
-                        if self.docs_writer:
+                        # 翻訳失敗時は原文のみ出力（出力機能が有効な場合のみ）
+                        if self.docs_writer and not self.mvp_config.disable_docs_output:
                             meeting_entry = MeetingEntry(
                                 timestamp=datetime.now(),
                                 speaker_name=self.mvp_config.speaker_name,
@@ -205,6 +234,44 @@ class MVPAudioRecognitionSystem:
         
         logger.info("翻訳・出力スレッド終了")
     
+    def transcription_only_thread(self):
+        """音声認識専用スレッド（翻訳・出力なし）"""
+        logger.info("音声認識専用スレッド開始")
+        
+        while self.is_running.is_set():
+            try:
+                # 音声認識結果を取得（タイムアウト付き）
+                if not self.recognition_queue.empty():
+                    recognition_result = self.recognition_queue.get(timeout=1.0)
+                    
+                    # 空文字や無効な結果をスキップ
+                    if not recognition_result or not recognition_result.strip():
+                        continue
+                    
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    
+                    # コンソール出力
+                    print(f"\n[{timestamp}] {self.mvp_config.speaker_name}:")
+                    print(f"認識結果({self.mvp_config.source_lang}): {recognition_result}")
+                    print("-" * 50)
+                    
+                    # ファイル出力
+                    with open(self.transcription_log_path, "a", encoding="utf-8") as log_file:
+                        log_file.write(f"[{timestamp}] {recognition_result}\n")
+                    
+                    logger.info(f"音声認識結果: {recognition_result}")
+                
+                else:
+                    time.sleep(0.1)  # CPU使用率軽減
+                    
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"音声認識専用スレッドでエラー: {e}")
+                time.sleep(1.0)
+        
+        logger.info("音声認識専用スレッド終了")
+    
     def _print_result(self, translation_result: TranslationResult):
         """結果をコンソールに出力"""
         timestamp = datetime.fromtimestamp(translation_result.timestamp).strftime("%H:%M:%S")
@@ -225,22 +292,38 @@ class MVPAudioRecognitionSystem:
             logger.error("API接続テストに失敗しました")
             return
         
-        # スレッド作成
+        # スレッド作成（機能無効化フラグに応じて分岐）
         threads = [
             threading.Thread(target=self.audio_capture.capture_thread, args=(self.is_running,)),
             threading.Thread(target=self.audio_processing.processing_thread, args=(self.is_running,)),
             threading.Thread(target=self.speech_recognition.recognition_thread, args=(self.is_running,)),
-            threading.Thread(target=self.translation_and_output_thread)
         ]
+        
+        # 翻訳・出力スレッドまたは音声認識専用スレッドを追加
+        if self.mvp_config.transcription_only:
+            threads.append(threading.Thread(target=self.transcription_only_thread))
+        else:
+            threads.append(threading.Thread(target=self.translation_and_output_thread))
         
         # スレッド開始
         for thread in threads:
             thread.start()
             logger.info(f"スレッド開始: {thread.name}")
         
-        print("\n=== MVP音声認識・翻訳・Google Docs出力システム稼働中 ===")
-        print(f"発話者: {self.mvp_config.speaker_name}")
-        print(f"翻訳方向: {self.mvp_config.source_lang} → {self.mvp_config.target_lang}")
+        if self.mvp_config.transcription_only:
+            print("\n=== MVP音声認識専用システム稼働中 ===")
+            print(f"発話者: {self.mvp_config.speaker_name}")
+            print(f"認識言語: {self.mvp_config.source_lang}")
+            print(f"出力ファイル: {self.transcription_log_path}")
+        else:
+            print("\n=== MVP音声認識・翻訳・Google Docs出力システム稼働中 ===")
+            print(f"発話者: {self.mvp_config.speaker_name}")
+            if not self.mvp_config.disable_translation:
+                print(f"翻訳方向: {self.mvp_config.source_lang} → {self.mvp_config.target_lang}")
+            else:
+                print(f"認識言語: {self.mvp_config.source_lang} (翻訳無効)")
+            if self.mvp_config.disable_docs_output:
+                print("Google Docs出力: 無効")
         print("Ctrl+Cで終了")
         print("=" * 60)
         
@@ -264,14 +347,16 @@ class MVPAudioRecognitionSystem:
         """API接続テスト"""
         logger.info("API接続テスト開始")
         
-        # Claude翻訳テスト
-        if not self.translator.test_connection():
-            logger.error("Claude API接続テスト失敗")
-            return False
+        # Claude翻訳テスト（翻訳機能が有効な場合のみ）
+        if self.translator:
+            if not self.translator.test_connection():
+                logger.error("Claude API接続テスト失敗")
+                return False
+            logger.info("✅ Claude API接続成功")
+        else:
+            logger.info("🚫 Claude翻訳テストをスキップ（翻訳機能無効）")
         
-        logger.info("✅ Claude API接続成功")
-        
-        # Google Docs接続テスト
+        # Google Docs接続テスト（出力機能が有効な場合のみ）
         if self.docs_writer:
             if not self.docs_writer.test_connection():
                 logger.error("Google Docs API接続テスト失敗")
@@ -284,7 +369,7 @@ class MVPAudioRecognitionSystem:
                 return False
             logger.info("✅ Google Docsドキュメントアクセス確認成功")
         else:
-            logger.info("📝 Google Docs出力は無効（ドキュメントIDが未指定）")
+            logger.info("🚫 Google Docs出力テストをスキップ（出力機能無効）")
         
         logger.info("API接続テスト完了")
         return True
@@ -334,6 +419,23 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--output-dir', 
         help='ログ出力ディレクトリ'
+    )
+    
+    # 機能無効化オプション
+    parser.add_argument(
+        '--disable-translation',
+        action='store_true',
+        help='翻訳機能を無効化（音声認識のみ実行）'
+    )
+    parser.add_argument(
+        '--disable-docs-output',
+        action='store_true',
+        help='Google Docs出力を無効化'
+    )
+    parser.add_argument(
+        '--transcription-only',
+        action='store_true',
+        help='音声認識のみ実行（翻訳・出力を無効化）'
     )
     
     return parser
