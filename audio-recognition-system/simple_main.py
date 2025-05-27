@@ -2,6 +2,7 @@
 """
 シンプル版 リアルタイム音声認識・翻訳・Google Docs出力システム
 StreamingRecognize前提で設計された軽量実装
+無音自動一時停止機能付き
 """
 
 import sys
@@ -12,6 +13,7 @@ import time
 import queue
 from datetime import datetime
 import signal
+from enum import Enum
 
 # シンプル実装
 from audio.simple_capture import SimpleAudioCapture
@@ -25,6 +27,18 @@ from mvp_config import MVPConfig, create_mvp_config_from_args
 from claude_translator import ClaudeTranslator, TranslationResult
 from basic_google_docs_writer import BasicGoogleDocsWriter, MeetingEntry
 
+class SystemState(Enum):
+    """システム状態"""
+    ACTIVE = "active"           # 通常動作
+    PAUSED = "paused"          # 一時停止
+    WAITING_INPUT = "waiting"   # キーボード入力待機
+    SHUTTING_DOWN = "shutdown"  # 終了処理中
+
+class PauseReason(Enum):
+    """一時停止理由"""
+    SILENCE = "silence"         # 無音による一時停止
+    RUNTIME = "runtime"         # 実行時間による一時停止
+
 class SimpleAudioRecognitionSystem:
     """シンプル版音声認識・翻訳・Google Docs出力システム"""
     
@@ -32,6 +46,21 @@ class SimpleAudioRecognitionSystem:
         self.mvp_config = mvp_config
         self.is_running = threading.Event()
         self.is_running.set()
+        
+        # 無音自動一時停止機能の設定
+        self.system_state = SystemState.ACTIVE
+        self.state_lock = threading.Lock()
+        self.last_speech_time = None
+        self.program_start_time = None
+        
+        # デバッグモード時はタイムアウトを短縮
+        if mvp_config.debug or mvp_config.verbose:
+            self.SILENCE_TIMEOUT = 30   # デバッグモード: 30秒無音で一時停止
+            self.MAX_RUNTIME = 60       # デバッグモード: 60秒（1分）で強制一時停止
+            print("🐛 デバッグモード: タイムアウト時間を短縮（無音30秒、実行1分）")
+        else:
+            self.SILENCE_TIMEOUT = 300  # 300秒（5分）無音で一時停止
+            self.MAX_RUNTIME = 1800     # 1800秒（30分）で強制一時停止
         
         # 音声認識結果を処理するキュー（1つだけ！）
         self.result_queue = queue.Queue()
@@ -41,6 +70,8 @@ class SimpleAudioRecognitionSystem:
             if is_final and transcript.strip():
                 # 最終結果のみキューに追加（表示はしない）
                 self.result_queue.put(transcript)
+                # 音声が検出されたので無音タイマーをリセット
+                self.last_speech_time = time.time()
             # 途中結果の表示も音声認識システム側に任せる
         
         # シンプル音声認識システム
@@ -94,6 +125,165 @@ class SimpleAudioRecognitionSystem:
             print(f"📝 ログファイル: {self.transcription_log_path}")
         
         print("✅ シンプル音声認識システム初期化完了")
+    
+    def timeout_monitor_thread(self):
+        """二重タイマー監視スレッド"""
+        print("🔄 タイムアウト監視スレッド開始")
+        
+        while self.is_running.is_set():
+            try:
+                with self.state_lock:
+                    if self.system_state == SystemState.SHUTTING_DOWN:
+                        print("🛑 タイムアウト監視スレッド: システム終了により終了")
+                        break
+                    elif self.system_state != SystemState.ACTIVE:
+                        # アクティブでない場合は1秒待機
+                        time.sleep(1)
+                        continue
+                
+                current_time = time.time()
+                
+                # 実行時間チェック（デバッグモードでは60秒、通常は30分）
+                if self.program_start_time and current_time - self.program_start_time > self.MAX_RUNTIME:
+                    print(f"⏰ 実行時間制限到達: {self.MAX_RUNTIME}秒経過")
+                    self._trigger_auto_pause(PauseReason.RUNTIME)
+                    return
+                
+                # 無音時間チェック（デバッグモードでは30秒、通常は5分）
+                if self.last_speech_time and current_time - self.last_speech_time > self.SILENCE_TIMEOUT:
+                    print(f"🔇 無音時間制限到達: {self.SILENCE_TIMEOUT}秒経過")
+                    self._trigger_auto_pause(PauseReason.SILENCE)
+                    return
+                    
+                time.sleep(5)  # 5秒間隔でチェック（より細かく監視）
+                
+            except Exception as e:
+                print(f"❌ タイムアウト監視エラー: {e}")
+                time.sleep(2)
+        
+        print("🏁 タイムアウト監視スレッド終了")
+    
+    def _trigger_auto_pause(self, reason: PauseReason):
+        """自動一時停止をトリガー"""
+        with self.state_lock:
+            if self.system_state != SystemState.ACTIVE:
+                return
+            
+            # 先に状態を変更してスレッドの動作を停止
+            self.system_state = SystemState.PAUSED
+        
+        # ログ出力
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if reason == PauseReason.SILENCE:
+            message = f"🔔 [{current_time}] ⏸️ 自動一時停止：{self.SILENCE_TIMEOUT}秒間音声が検出されませんでした"
+            reason_text = f"{self.SILENCE_TIMEOUT}秒間音声が検出されませんでした"
+        else:  # PauseReason.RUNTIME
+            message = f"🔔 [{current_time}] ⏸️ 自動一時停止：プログラム開始から{self.MAX_RUNTIME//60}分が経過しました"
+            reason_text = f"プログラム開始から{self.MAX_RUNTIME//60}分が経過しました"
+        
+        print(f"\n{message}")
+        
+        # 音声キャプチャと認識を停止（状態変更後）
+        try:
+            print("🛑 音声キャプチャ停止中...")
+            self.audio_capture.stop_capture()
+            print("🛑 音声認識停止中...")
+            self.speech_recognition.stop_recognition()
+            print("🛑 音声処理停止完了")
+        except Exception as e:
+            print(f"⚠️ 音声処理停止エラー: {e}")
+        
+        # 少し待機してから入力待機に移行
+        time.sleep(1)
+        
+        # キーボード入力待機
+        self._wait_for_user_input(reason_text, current_time)
+    
+    def _wait_for_user_input(self, reason_text: str, pause_time: str):
+        """キーボード入力待機"""
+        with self.state_lock:
+            self.system_state = SystemState.WAITING_INPUT
+        
+        # 確実に表示されるよう、出力をフラッシュ
+        print("\n" + "=" * 60, flush=True)
+        print("=== 自動一時停止中 ===", flush=True)
+        print(f"理由: {reason_text}", flush=True)
+        print(f"時刻: {pause_time}", flush=True)
+        print(flush=True)
+        print("利用可能なコマンド:", flush=True)
+        print("  [r] または [Enter] : ストリーミング再開", flush=True)
+        print("  [q] または [x]     : プログラム終了", flush=True)
+        print("=" * 60, flush=True)
+        print(flush=True)
+        
+        while True:
+            try:
+                # システム状態をチェック
+                with self.state_lock:
+                    if self.system_state == SystemState.SHUTTING_DOWN:
+                        print("🛑 システム終了処理中...")
+                        return
+                
+                command = input("コマンドを入力してください: ").strip().lower()
+                print(f"📝 入力されたコマンド: '{command}'", flush=True)
+                
+                if command in ['r', '']:  # 'r' または Enter
+                    print("▶️ 再開コマンドが選択されました", flush=True)
+                    self._resume_system()
+                    break
+                elif command in ['q', 'x']:
+                    print("🛑 終了コマンドが選択されました", flush=True)
+                    self._shutdown_system()
+                    break
+                else:
+                    print("❌ 無効なコマンドです。'r' (再開) または 'q' (終了) を入力してください。", flush=True)
+                    
+            except (KeyboardInterrupt, EOFError):
+                print("\n⚠️ 強制終了が要求されました。", flush=True)
+                self._shutdown_system()
+                break
+            except Exception as e:
+                print(f"❌ 入力エラー: {e}", flush=True)
+                # エラーが発生した場合は少し待機
+                time.sleep(0.5)
+    
+    def _resume_system(self):
+        """システム再開"""
+        with self.state_lock:
+            self.system_state = SystemState.ACTIVE
+            
+            # タイマーリセット
+            current_time = time.time()
+            self.program_start_time = current_time
+            self.last_speech_time = current_time
+            
+            print("\n" + "=" * 60)
+            print("▶️ ユーザー要求により再開（タイマーリセット）")
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
+            print("=" * 60)
+            
+            # 音声キャプチャと認識を再開
+            threading.Thread(target=self.audio_capture.start_capture, daemon=True).start()
+            threading.Thread(target=self._continuous_speech_recognition_thread, daemon=True).start()
+            threading.Thread(target=self.timeout_monitor_thread, daemon=True).start()
+    
+    def _shutdown_system(self):
+        """システム終了"""
+        with self.state_lock:
+            self.system_state = SystemState.SHUTTING_DOWN
+        
+        print("\n🛑 システム終了処理を開始します...")
+        self.is_running.clear()
+        
+        if hasattr(self, 'audio_capture'):
+            self.audio_capture.stop_capture()
+        if hasattr(self, 'speech_recognition'):
+            self.speech_recognition.stop_recognition()
+        
+        print("🏁 システムを終了しました。")
+        sys.exit(0)
     
     def _get_language_code(self, lang):
         """言語コードをGoogle Cloud Speech V2形式に変換"""
@@ -214,7 +404,7 @@ class SimpleAudioRecognitionSystem:
     
     def run(self):
         """システム実行（再接続機能付き）"""
-        print("🚀 シンプル音声認識システム開始（再接続機能付き）")
+        print("🚀 シンプル音声認識システム開始（再接続機能付き、無音自動一時停止機能付き）")
         
         # 設定表示
         self.mvp_config.print_config()
@@ -224,11 +414,17 @@ class SimpleAudioRecognitionSystem:
             print("❌ API接続テスト失敗")
             return
         
+        # タイマー初期化
+        current_time = time.time()
+        self.program_start_time = current_time
+        self.last_speech_time = current_time
+        
         # スレッド作成（シンプル！）
         threads = [
             threading.Thread(target=self.audio_capture.start_capture),
             threading.Thread(target=self.result_processing_thread),
             threading.Thread(target=self._continuous_speech_recognition_thread),  # 新しい継続的認識スレッド
+            threading.Thread(target=self.timeout_monitor_thread),  # タイムアウト監視スレッド
         ]
         
         # スレッド開始
@@ -251,14 +447,37 @@ class SimpleAudioRecognitionSystem:
                 print(f"認識言語: {self.mvp_config.source_lang} (翻訳無効)")
         
         print("⚡ 継続的ストリーミング機能: Googleのタイムアウト制限を自動回避")
+        
+        # デバッグモード表示
+        if self.mvp_config.debug or self.mvp_config.verbose:
+            print(f"🐛 デバッグモード - 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
+            print(f"🐛 デバッグモード - 実行時間制限: {self.MAX_RUNTIME}秒で自動一時停止")
+        else:
+            print(f"🔔 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
+            print(f"⏰ 実行時間制限: {self.MAX_RUNTIME//60}分で自動一時停止")
+        
         print("Ctrl+Cで終了")
+        
+        # タイマー開始ログ
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if self.mvp_config.debug or self.mvp_config.verbose:
+            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME}秒後に自動一時停止）")
+        else:
+            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
         print("=" * 60)
         
         try:
             while True:
+                with self.state_lock:
+                    if self.system_state == SystemState.SHUTTING_DOWN:
+                        break
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\n\n終了処理中...")
+            print("\n\n👋 ユーザーによる中断要求")
+            with self.state_lock:
+                self.system_state = SystemState.SHUTTING_DOWN
             self.is_running.clear()
             self.audio_capture.stop_capture()
             self.speech_recognition.stop_recognition()
@@ -273,6 +492,14 @@ class SimpleAudioRecognitionSystem:
         
         while self.is_running.is_set():
             try:
+                # システム状態をチェック
+                with self.state_lock:
+                    if self.system_state != SystemState.ACTIVE:
+                        print(f"⏸️ システム状態: {self.system_state.value} - ストリーミング認識を一時停止")
+                        # 一時停止中は1秒待機してから再チェック
+                        time.sleep(1)
+                        continue
+                
                 reconnection_count += 1
                 current_time = time.strftime('%H:%M:%S', time.localtime())
                 
@@ -287,26 +514,26 @@ class SimpleAudioRecognitionSystem:
                 self.speech_recognition.start_streaming_recognition()
                 
                 # ここに到達するのは正常終了時（15.2秒制限など）
-                if self.is_running.is_set():  # 手動停止でない場合
-                    current_time = time.strftime('%H:%M:%S', time.localtime())
-                    print(f"✅ [{current_time}] ストリーミング正常終了 - 即座に再接続します")
-                    
-                    # Sleep なし - 即座に再接続
-                    continue
-                else:
-                    print("🛑 手動停止により継続的ストリーミングを終了")
-                    break
+                with self.state_lock:
+                    if self.system_state == SystemState.ACTIVE and self.is_running.is_set():
+                        current_time = time.strftime('%H:%M:%S', time.localtime())
+                        print(f"✅ [{current_time}] ストリーミング正常終了 - 即座に再接続します")
+                        continue
+                    else:
+                        print(f"🛑 システム状態変更により継続的ストリーミングを終了 (状態: {self.system_state.value})")
+                        break
                     
             except Exception as e:
                 current_time = time.strftime('%H:%M:%S', time.localtime())
                 print(f"❌ [{current_time}] ストリーミング認識エラー: {e}")
                 
-                if self.is_running.is_set():
-                    print("🔄 エラー後も継続 - 即座に再接続を試行します")
-                    continue
-                else:
-                    print("🛑 停止要求のため継続的ストリーミングを終了")
-                    break
+                with self.state_lock:
+                    if self.system_state == SystemState.ACTIVE and self.is_running.is_set():
+                        print("🔄 エラー後も継続 - 即座に再接続を試行します")
+                        continue
+                    else:
+                        print(f"🛑 システム状態変更のため継続的ストリーミングを終了 (状態: {self.system_state.value})")
+                        break
         
         print("🏁 継続的ストリーミング認識スレッド終了")
     
@@ -403,6 +630,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
         '--verbose',
         action='store_true',
         help='詳細ログを表示'
+    )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='デバッグモード（タイムアウト時間短縮: 無音30秒、実行1分）'
     )
     
     return parser

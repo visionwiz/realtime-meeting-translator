@@ -56,6 +56,7 @@ class MVPConfig:
     
     # ログ制御フラグ
     verbose: bool = False
+    debug: bool = False
     
     def __post_init__(self):
         """初期化後の処理"""
@@ -188,6 +189,7 @@ class MVPConfig:
         
         print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
         print(f"ログモード: {'詳細表示' if self.verbose else '簡潔表示'}")
+        print(f"デバッグモード: {'有効' if self.debug else '無効'}")
         print("==================")
 
 
@@ -215,7 +217,8 @@ def create_mvp_config_from_args(args) -> MVPConfig:
         disable_translation=disable_translation,
         disable_docs_output=disable_docs_output,
         transcription_only=getattr(args, 'transcription_only', False),
-        verbose=getattr(args, 'verbose', False)
+        verbose=getattr(args, 'verbose', False),
+        debug=getattr(args, 'debug', False)
     )
     
     # input_deviceは明示的に指定された場合のみ上書き
