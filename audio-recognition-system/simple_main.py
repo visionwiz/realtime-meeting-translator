@@ -211,8 +211,8 @@ class SimpleAudioRecognitionSystem:
         print(f"時刻: {pause_time}", flush=True)
         print(flush=True)
         print("利用可能なコマンド:", flush=True)
-        print("  [r] または [Enter] : ストリーミング再開", flush=True)
-        print("  [q] または [x]     : プログラム終了", flush=True)
+        print("  [Enter] : ストリーミング再開", flush=True)
+        print("  [q] または [x] : プログラム終了", flush=True)
         print("=" * 60, flush=True)
         print(flush=True)
         
@@ -227,7 +227,7 @@ class SimpleAudioRecognitionSystem:
                 command = input("コマンドを入力してください: ").strip().lower()
                 print(f"📝 入力されたコマンド: '{command}'", flush=True)
                 
-                if command in ['r', '']:  # 'r' または Enter
+                if command == '':  # Enter のみ
                     print("▶️ 再開コマンドが選択されました", flush=True)
                     self._resume_system()
                     break
@@ -236,7 +236,7 @@ class SimpleAudioRecognitionSystem:
                     self._shutdown_system()
                     break
                 else:
-                    print("❌ 無効なコマンドです。'r' (再開) または 'q' (終了) を入力してください。", flush=True)
+                    print("❌ 無効なコマンドです。[Enter] (再開) または 'q' (終了) を入力してください。", flush=True)
                     
             except (KeyboardInterrupt, EOFError):
                 print("\n⚠️ 強制終了が要求されました。", flush=True)
