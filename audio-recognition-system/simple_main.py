@@ -213,8 +213,8 @@ class SimpleAudioRecognitionSystem:
         print("-" * 50)
     
     def run(self):
-        """システム実行"""
-        print("🚀 シンプル音声認識システム開始")
+        """システム実行（再接続機能付き）"""
+        print("🚀 シンプル音声認識システム開始（再接続機能付き）")
         
         # 設定表示
         self.mvp_config.print_config()
@@ -228,6 +228,7 @@ class SimpleAudioRecognitionSystem:
         threads = [
             threading.Thread(target=self.audio_capture.start_capture),
             threading.Thread(target=self.result_processing_thread),
+            threading.Thread(target=self._continuous_speech_recognition_thread),  # 新しい継続的認識スレッド
         ]
         
         # スレッド開始
@@ -235,23 +236,21 @@ class SimpleAudioRecognitionSystem:
             thread.daemon = True  # メインスレッド終了時に自動終了
             thread.start()
         
-        # 音声認識開始
-        self.speech_recognition.start_streaming_recognition()
-        
         # ステータス表示
         if self.mvp_config.transcription_only:
-            print("\n=== シンプル音声認識専用システム稼働中 ===")
+            print("\n=== シンプル音声認識専用システム稼働中（継続的再接続機能付き） ===")
             print(f"発話者: {self.mvp_config.speaker_name}")
             print(f"認識言語: {self.mvp_config.source_lang}")
             print(f"出力ファイル: {self.transcription_log_path}")
         else:
-            print("\n=== シンプル音声認識・翻訳・Google Docs出力システム稼働中 ===")
+            print("\n=== シンプル音声認識・翻訳・Google Docs出力システム稼働中（継続的再接続機能付き） ===")
             print(f"発話者: {self.mvp_config.speaker_name}")
             if not self.mvp_config.disable_translation:
                 print(f"翻訳方向: {self.mvp_config.source_lang} → {self.mvp_config.target_lang}")
             else:
                 print(f"認識言語: {self.mvp_config.source_lang} (翻訳無効)")
         
+        print("⚡ 継続的ストリーミング機能: Googleのタイムアウト制限を自動回避")
         print("Ctrl+Cで終了")
         print("=" * 60)
         
@@ -266,6 +265,50 @@ class SimpleAudioRecognitionSystem:
             time.sleep(2)  # 終了処理待機
         
         print("🏁 シンプルシステムを終了しました。")
+    
+    def _continuous_speech_recognition_thread(self):
+        """継続的ストリーミング認識スレッド（再接続機能）"""
+        print("🔄 継続的ストリーミング認識スレッド開始")
+        reconnection_count = 0
+        
+        while self.is_running.is_set():
+            try:
+                reconnection_count += 1
+                current_time = time.strftime('%H:%M:%S', time.localtime())
+                
+                if reconnection_count == 1:
+                    print(f"🎤 [{current_time}] ストリーミング認識開始（接続 #{reconnection_count}）")
+                else:
+                    print(f"🔄 [{current_time}] ストリーミング再接続（接続 #{reconnection_count}）")
+                    # 再接続前に状態をリセット
+                    self.speech_recognition._reset_for_reconnection()
+                
+                # ストリーミング認識開始（ブロッキング実行）
+                self.speech_recognition.start_streaming_recognition()
+                
+                # ここに到達するのは正常終了時（15.2秒制限など）
+                if self.is_running.is_set():  # 手動停止でない場合
+                    current_time = time.strftime('%H:%M:%S', time.localtime())
+                    print(f"✅ [{current_time}] ストリーミング正常終了 - 即座に再接続します")
+                    
+                    # Sleep なし - 即座に再接続
+                    continue
+                else:
+                    print("🛑 手動停止により継続的ストリーミングを終了")
+                    break
+                    
+            except Exception as e:
+                current_time = time.strftime('%H:%M:%S', time.localtime())
+                print(f"❌ [{current_time}] ストリーミング認識エラー: {e}")
+                
+                if self.is_running.is_set():
+                    print("🔄 エラー後も継続 - 即座に再接続を試行します")
+                    continue
+                else:
+                    print("🛑 停止要求のため継続的ストリーミングを終了")
+                    break
+        
+        print("🏁 継続的ストリーミング認識スレッド終了")
     
     def _test_connections(self) -> bool:
         """API接続テスト（既存再利用）"""
