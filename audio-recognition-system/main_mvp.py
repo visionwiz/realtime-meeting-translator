@@ -70,7 +70,7 @@ class MVPAudioRecognitionSystem:
                 self.format = "int16"
                 self.channels = 1
                 self.rate = mvp_config.sample_rate
-                self.chunk = 1024
+                self.chunk = 1600  # Google推奨: 100ms @ 16kHz
                 self.buffer_duration = 5.0
                 # SpeechRecognition用の追加属性
                 self.model_size = mvp_config.speech_model

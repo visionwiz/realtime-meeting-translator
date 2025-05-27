@@ -8,7 +8,7 @@ import io
 class SimpleAudioCapture:
     """StreamingRecognize専用のシンプルな音声キャプチャ"""
     
-    def __init__(self, callback_func, input_device=None, sample_rate=16000, chunk_size=1024, verbose=False):
+    def __init__(self, callback_func, input_device=None, sample_rate=16000, chunk_size=1600, verbose=False):
         self.callback_func = callback_func
         self.sample_rate = sample_rate
         self.chunk_size = chunk_size

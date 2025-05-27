@@ -81,8 +81,8 @@ def setup_audio_args(parser: argparse.ArgumentParser) -> None:
     audio_group.add_argument(
         "--chunk",
         type=int,
-        default=1024,
-        help="Chunk size (default: 1024)"
+        default=1600,
+        help="Chunk size in samples - Google recommended 100ms @ 16kHz (default: 1600)"
     )
     audio_group.add_argument(
         "--input-device",

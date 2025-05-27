@@ -104,10 +104,13 @@ class SimpleAudioRecognitionSystem:
         )
         
         # シンプル音声キャプチャ（直接認識システムに送信）
+        # Google推奨: 100ms chunk @ 16kHz = 1600 samples
+        chunk_size = int(mvp_config.sample_rate * 0.1)  # 100ms
         self.audio_capture = SimpleAudioCapture(
             callback_func=self.speech_recognition.add_audio_data,
             input_device=mvp_config.input_device,
             sample_rate=mvp_config.sample_rate,
+            chunk_size=chunk_size,
             verbose=mvp_config.verbose
         )
         
