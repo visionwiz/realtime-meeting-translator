@@ -5,12 +5,13 @@ import time
 from typing import Callable
 from google.cloud import speech_v2
 from google.api_core.client_options import ClientOptions
+from google.protobuf import duration_pb2  # Voice Activity Timeout用
 
 class SimpleStreamingSpeechRecognition:
     """Google Cloud Speech-to-Text V2 + chirp_2の真のストリーミング実装（公式ドキュメント完全準拠）"""
     
     def __init__(self, language_code="ja-JP", result_callback=None, 
-                 project_id=None, region="asia-southeast1", verbose=False):
+                 project_id=None, region="asia-northeast1", verbose=False):
         # 基本設定
         self.language_code = language_code
         self.result_callback = result_callback
@@ -36,10 +37,11 @@ class SimpleStreamingSpeechRecognition:
         self.streaming_start_time = None
         self.max_streaming_duration = 300  # 5分制限
         
-        print(f"🌩️ Simple Google Cloud Speech-to-Text V2 + chirp_2 初期化（真のストリーミング版）")
+        print(f"🌩️ Simple Google Cloud Speech-to-Text V2 + long 初期化（Voice Activity Detection 検証版）")
         print(f"   プロジェクト: {self.project_id}")
         print(f"   リージョン: {self.region}")
         print(f"   言語: {language_code}")
+        print(f"   Voice Activity Detection: 有効（音声終了自動検出）")
         if not self.verbose:
             print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
     
@@ -65,7 +67,7 @@ class SimpleStreamingSpeechRecognition:
         recognition_thread.daemon = True
         recognition_thread.start()
         
-        print("🌩️ 真のストリーミング認識開始（公式準拠版）")
+        print("🌩️ 真のストリーミング認識開始（公式準拠版 + Voice Activity Detection）")
     
     def _audio_generator(self):
         """公式準拠の音声データジェネレーター（継続的ストリーミング）"""
@@ -100,7 +102,7 @@ class SimpleStreamingSpeechRecognition:
             print("🎵 音声ジェネレーター終了")
     
     def _run_streaming_recognition(self):
-        """真のストリーミング認識処理（公式ドキュメント完全準拠）"""
+        """真のストリーミング認識処理（公式ドキュメント完全準拠 + Voice Activity Detection）"""
         try:
             # Recognizer リソースパス
             recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
@@ -115,17 +117,27 @@ class SimpleStreamingSpeechRecognition:
                     audio_channel_count=1,
                 ),
                 language_codes=[self.language_code],
-                model="chirp_2",
+                model="long",
                 features=speech_v2.types.RecognitionFeatures(
                     enable_automatic_punctuation=True,
                     enable_word_time_offsets=True,
                 )
             )
             
+            # Voice Activity Detection設定（Google公式ドキュメント準拠）
+            speech_start_timeout = duration_pb2.Duration(seconds=10)  # 音声開始待機タイムアウト
+            speech_end_timeout = duration_pb2.Duration(seconds=3)     # 音声終了から3秒でis_final送信
+            voice_activity_timeout = speech_v2.types.StreamingRecognitionFeatures.VoiceActivityTimeout(
+                speech_start_timeout=speech_start_timeout,
+                speech_end_timeout=speech_end_timeout
+            )
+            
             streaming_config = speech_v2.types.StreamingRecognitionConfig(
                 config=recognition_config,
                 streaming_features=speech_v2.types.StreamingRecognitionFeatures(
-                    interim_results=True  # 中間結果も受信
+                    interim_results=True,  # 中間結果も受信
+                    enable_voice_activity_events=True,  # Voice Activity Events有効化
+                    voice_activity_timeout=voice_activity_timeout  # 音声終了タイムアウト設定
                 )
             )
             
@@ -133,7 +145,7 @@ class SimpleStreamingSpeechRecognition:
             def generate_requests():
                 """公式準拠のリクエストジェネレーター"""
                 # 最初のリクエスト（設定のみ）
-                print("📤 設定リクエスト送信")
+                print("📤 設定リクエスト送信（Voice Activity Detection有効）")
                 yield speech_v2.types.StreamingRecognizeRequest(
                     recognizer=recognizer_name,
                     streaming_config=streaming_config
@@ -171,6 +183,13 @@ class SimpleStreamingSpeechRecognition:
                         if (current_time - self.last_response_log_time) > 1.0:
                             print(f"📥 レスポンス受信 #{self.response_count}")
                             self.last_response_log_time = current_time
+                    
+                    # Voice Activity Events処理（Google公式機能）
+                    if hasattr(response, 'speech_event_type') and response.speech_event_type:
+                        if response.speech_event_type == speech_v2.types.StreamingRecognizeResponse.SpeechEventType.SPEECH_ACTIVITY_BEGIN:
+                            print("🗣️ 音声開始検出")
+                        elif response.speech_event_type == speech_v2.types.StreamingRecognizeResponse.SpeechEventType.SPEECH_ACTIVITY_END:
+                            print("🤫 音声終了検出（最終結果送信準備）")
                     
                     if hasattr(response, 'results') and response.results:
                         for i, result in enumerate(response.results):

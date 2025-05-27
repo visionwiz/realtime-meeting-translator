@@ -14,6 +14,7 @@ class SimpleAudioCapture:
         self.chunk_size = chunk_size
         self.input_device = self.get_input_device_index(input_device)
         self.is_running = False
+        self.is_paused = False  # 一時停止制御
         self.verbose = verbose  # 詳細ログ制御
         
         # ログ制御用
@@ -83,8 +84,10 @@ class SimpleAudioCapture:
                     # 音声データを読み取り
                     data = stream.read(self.chunk_size, exception_on_overflow=False)
                     
-                    # 生のPCMデータを直接送信（WAV変換なし）
-                    self.callback_func(data)
+                    # 一時停止中でなければデータ送信
+                    if not self.is_paused:
+                        # 生のPCMデータを直接送信（WAV変換なし）
+                        self.callback_func(data)
                     
                     # デバッグ用: 音声レベル表示（verboseモードのみ）
                     if self.verbose:
@@ -130,6 +133,16 @@ class SimpleAudioCapture:
         
         wav_buffer.seek(0)
         return wav_buffer.read()
+    
+    def pause_capture(self):
+        """音声キャプチャ一時停止（テスト用）"""
+        self.is_paused = True
+        print("⏸️ 音声キャプチャ一時停止（Voice Activity Detection テスト用）")
+    
+    def resume_capture(self):
+        """音声キャプチャ再開（テスト用）"""
+        self.is_paused = False
+        print("▶️ 音声キャプチャ再開")
     
     def stop_capture(self):
         """音声キャプチャ停止"""
