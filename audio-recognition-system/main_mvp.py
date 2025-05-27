@@ -72,7 +72,7 @@ class MVPAudioRecognitionSystem:
                 self.chunk = 1024
                 self.buffer_duration = 5.0
                 # SpeechRecognition用の追加属性
-                self.model_size = "large-v3"
+                self.model_size = mvp_config.speech_model
                 self.compute_type = "float16"
                 self.beam_size = 5
                 self.best_of = 5
