@@ -57,19 +57,20 @@ class SimpleStreamingSpeechRecognition:
         # 認証付きクライアント初期化
         self.client = self._initialize_client_with_auth()
         
-        print(f"🌩️ Simple Google Cloud Speech-to-Text V2 + long 初期化（会議翻訳向けVAD設定）")
-        print(f"   プロジェクト: {self.project_id}")
-        print(f"   リージョン: {self.region}")
-        print(f"   言語: {language_code}")
-        if self.enable_phrase_set:
-            print(f"   モデル: long + インラインフレーズセット適応（13フレーズ、boost最大値20）")
-            print(f"   フレーズセット: せんせいフォト、メディアセレクター、コドモン、子どもん等")
-        else:
-            print(f"   モデル: long（フレーズセット適応無効 - 比較テスト用）")
-            print(f"   フレーズセット: 無効化（効果検証用）")
-        print(f"   Voice Activity Detection: 有効（開始10秒待機、終了3秒検出）- テスト用設定")
-        if not self.verbose:
-            print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
+        # print(f"✅ Google Cloud Speech API認証成功")
+        # print(f"🌩️ Simple Google Cloud Speech-to-Text V2 + long 初期化（会議翻訳向けVAD設定）")
+        # print(f"   プロジェクト: {self.project_id}")
+        # print(f"   リージョン: {self.region}")
+        # print(f"   言語: {language_code}")
+        # if self.enable_phrase_set:
+        #     print(f"   モデル: long + インラインフレーズセット適応（13フレーズ、boost最大値20）")
+        #     print(f"   フレーズセット: せんせいフォト、メディアセレクター、コドモン、子どもん等")
+        # else:
+        #     print(f"   モデル: long（フレーズセット適応無効 - 比較テスト用）")
+        #     print(f"   フレーズセット: 無効化（効果検証用）")
+        # print(f"   Voice Activity Detection: 有効（開始10秒待機、終了3秒検出）- テスト用設定")
+        # if not self.verbose:
+        #     print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
     
     def _initialize_client_with_auth(self):
         """認証エラー自動修復付きクライアント初期化"""
@@ -87,7 +88,7 @@ class SimpleStreamingSpeechRecognition:
                     # 認証が有効かテスト
                     recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
                     # 実際にはリクエストを送信せず、クライアントの初期化のみテスト
-                    print("✅ Google Cloud Speech API認証成功")
+                    # print("✅ Google Cloud Speech API認証成功")
                     return client
                 except Exception as auth_test_error:
                     if "Reauthentication is needed" in str(auth_test_error) or "RefreshError" in str(auth_test_error):
@@ -215,7 +216,7 @@ class SimpleStreamingSpeechRecognition:
             if self.verbose:
                 current_time = time.time()
                 if (current_time - self.last_audio_log_time) > self.audio_log_interval:
-                    print(f"🎤 音声データ追加: {len(audio_data)} bytes（キューサイズ: {self.audio_queue.qsize()}）")
+                    # print(f"🎤 音声データ追加: {len(audio_data)} bytes（キューサイズ: {self.audio_queue.qsize()}）")
                     self.last_audio_log_time = current_time
     
     def start_streaming_recognition(self):
@@ -224,8 +225,8 @@ class SimpleStreamingSpeechRecognition:
         self.streaming_start_time = time.time()
         self.start_time = self.streaming_start_time  # 経過時間デバッグ用
         
-        print("🌩️ 真のストリーミング認識開始（公式準拠版 + Voice Activity Detection）")
-        print(f"⏰ 開始時刻: {time.strftime('%H:%M:%S', time.localtime(self.start_time))}")
+        # print("🌩️ 真のストリーミング認識開始（公式準拠版 + Voice Activity Detection）")
+        # print(f"⏰ 開始時刻: {time.strftime('%H:%M:%S', time.localtime(self.start_time))}")
         
         # 直接実行（ブロッキング）- 再接続パターンに対応
         self._run_streaming_recognition()
@@ -243,7 +244,8 @@ class SimpleStreamingSpeechRecognition:
     def _audio_generator(self):
         """公式準拠の音声データジェネレーター（継続的ストリーミング）"""
         if self.verbose:
-            print("🎵 音声ジェネレーター開始")
+            # print("🎵 音声ジェネレーター開始")
+            pass
         
         while self.streaming_active:
             try:
@@ -257,28 +259,33 @@ class SimpleStreamingSpeechRecognition:
                 audio_data = self.audio_queue.get(timeout=1.0)
                 if audio_data is None:  # 終了シグナル
                     elapsed = self._get_elapsed_time()
-                    print(f"🛑 音声ジェネレーター終了シグナル受信 [{self._format_elapsed_time(elapsed)}]")
+                    # print(f"🛑 音声ジェネレーター終了シグナル受信 [{self._format_elapsed_time(elapsed)}]")
                     break
                     
                 if self.verbose:
-                    print(f"🎶 音声データ生成: {len(audio_data)} bytes")
+                    # print(f"🎶 音声データ生成: {len(audio_data)} bytes")
+                    pass
                 yield audio_data
                 
             except queue.Empty:
                 # タイムアウト時は継続（音声がない間も接続維持）
                 if self.verbose:
-                    print("⏰ 音声待機中...")
+                    # print("⏰ 音声待機中...")
+                    pass
                 continue
         
         # 終了理由をログ出力
         elapsed = self._get_elapsed_time()
         if not self.streaming_active:
-            print(f"🛑 音声ジェネレーター終了: streaming_active=False [{self._format_elapsed_time(elapsed)}]")
+            # print(f"🛑 音声ジェネレーター終了: streaming_active=False [{self._format_elapsed_time(elapsed)}]")
+            pass
         else:
-            print(f"🛑 音声ジェネレーター終了: その他の理由 [{self._format_elapsed_time(elapsed)}]")
+            # print(f"🛑 音声ジェネレーター終了: その他の理由 [{self._format_elapsed_time(elapsed)}]")
+            pass
         
         if self.verbose:
-            print("🎵 音声ジェネレーター終了")
+            # print("🎵 音声ジェネレーター終了")
+            pass
     
     def _run_streaming_recognition(self):
         """真のストリーミング認識処理（公式ドキュメント完全準拠 + Voice Activity Detection + 認証エラー自動修復）"""
@@ -286,7 +293,8 @@ class SimpleStreamingSpeechRecognition:
             # Recognizer リソースパス
             recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
             if self.verbose:
-                print(f"🔧 Recognizer: {recognizer_name}")
+                # print(f"🔧 Recognizer: {recognizer_name}")
+                pass
             
             # 認識設定（明示的PCMフォーマット指定 + 条件付きインラインフレーズセット適応）
             if self.enable_phrase_set:
@@ -410,7 +418,7 @@ class SimpleStreamingSpeechRecognition:
                 requests=generate_requests()
             )
             
-            print("📨 レスポンス処理開始...")
+            # print("📨 レスポンス処理開始...")
             self.response_count = 0
             
             try:
@@ -554,7 +562,7 @@ class SimpleStreamingSpeechRecognition:
         finally:
             self.streaming_active = False
             elapsed = self._get_elapsed_time()
-            print(f"🌩️ ストリーミング認識終了 [{self._format_elapsed_time(elapsed)}]")
+            # print(f"🌩️ ストリーミング認識終了 [{self._format_elapsed_time(elapsed)}]")
     
     def _is_authentication_error(self, error) -> bool:
         """エラーが認証関連かどうかを判定"""
@@ -577,7 +585,7 @@ class SimpleStreamingSpeechRecognition:
         """認識停止"""
         self.streaming_active = False
         self.audio_queue.put(None)  # 終了シグナル
-        print("🛑 認識停止要求送信")
+        # print("🛑 認識停止要求送信")
     
     def _reset_for_reconnection(self):
         """再接続用の状態リセット"""

@@ -194,14 +194,36 @@ def check_api_configuration() -> Dict[str, Tuple[bool, str]]:
     return results
 
 def test_apis(verbose: bool = False) -> Dict[str, Tuple[bool, str]]:
-    """API接続テスト（オプション）"""
+    """API接続テスト（包括的バージョン）"""
     results = {}
     
     if verbose:
-        print_info("API接続テストを実行中...")
+        print_info("包括的API接続テストを実行中...")
     
-    # Claude APIテスト
+    # Google Cloud Speech APIテスト（新規追加）
     try:
+        print_info("Google Cloud Speech API接続テスト実行中...")
+        
+        import google.auth
+        from google.cloud import speech_v2
+        
+        # 認証情報の確認
+        credentials, project_id = google.auth.default()
+        
+        if not project_id:
+            results['Google Cloud Speech API'] = (False, "プロジェクトIDが設定されていません")
+        else:
+            # Speech V2クライアント作成テスト
+            client = speech_v2.SpeechClient()
+            results['Google Cloud Speech API'] = (True, f"接続成功 (プロジェクト: {project_id})")
+            
+    except Exception as e:
+        results['Google Cloud Speech API'] = (False, f"接続エラー: {str(e)[:100]}...")
+    
+    # Claude APIテスト（改良版）
+    try:
+        print_info("Claude API接続テスト実行中...")
+        
         sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))
         from translator import ClaudeTranslator
         from dotenv import load_dotenv
@@ -209,45 +231,95 @@ def test_apis(verbose: bool = False) -> Dict[str, Tuple[bool, str]]:
         load_dotenv()
         api_key = os.getenv('CLAUDE_API_KEY')
         
-        if api_key and api_key != 'your_claude_api_key_here':
-            translator = ClaudeTranslator(api_key, 'claude-3-7-sonnet-20250219')
-            if translator.test_connection():
-                results['Claude API接続'] = (True, "接続成功")
-            else:
-                results['Claude API接続'] = (False, "接続失敗")
+        if not api_key:
+            results['Claude API接続'] = (False, "APIキーが設定されていません")
+        elif api_key == 'your_claude_api_key_here':
+            results['Claude API接続'] = (False, "APIキーが例文のままです")
         else:
-            results['Claude API接続'] = (False, "APIキー未設定")
+            translator = ClaudeTranslator(api_key, 'claude-3-7-sonnet-20250219')
+            
+            # 実際の翻訳テストを実行
+            test_result = translator.translate("Hello", "en", "ja")
+            
+            if test_result.success:
+                results['Claude API接続'] = (True, f"接続成功 (翻訳結果: {test_result.translated_text})")
+            else:
+                results['Claude API接続'] = (False, f"翻訳テスト失敗: {test_result.error_message}")
+                
     except Exception as e:
-        results['Claude API接続'] = (False, f"テストエラー: {str(e)}")
+        results['Claude API接続'] = (False, f"テストエラー: {str(e)[:100]}...")
     
-    # Google Docs APIテスト
+    # Google Docs APIテスト（改良版）
     try:
+        print_info("Google Docs API接続テスト実行中...")
+        
         sys.path.append(os.path.join(os.path.dirname(__file__), 'output'))
         from basic_google_docs_writer import BasicGoogleDocsWriter
         
         creds_path = os.getenv('GOOGLE_DOCS_CREDENTIALS_PATH', 'credentials.json')
         token_path = os.getenv('GOOGLE_DOCS_TOKEN_PATH', 'token.json')
         
-        if Path(creds_path).exists():
-            writer = BasicGoogleDocsWriter(creds_path, token_path)
-            if writer.test_connection():
-                results['Google Docs API接続'] = (True, "接続成功")
-            else:
-                results['Google Docs API接続'] = (False, "接続失敗")
+        if not Path(creds_path).exists():
+            results['Google Docs API接続'] = (False, f"認証ファイル未存在: {creds_path}")
         else:
-            results['Google Docs API接続'] = (False, "認証ファイル未存在")
+            writer = BasicGoogleDocsWriter(creds_path, token_path)
+            
+            # 基本接続テスト
+            if not writer.test_connection():
+                results['Google Docs API接続'] = (False, "基本接続テスト失敗")
+            else:
+                # ドキュメントアクセステスト
+                docs_id = os.getenv('GOOGLE_DOCS_ID')
+                if docs_id:
+                    writer.set_document_id(docs_id)
+                    if writer.verify_document_access():
+                        results['Google Docs API接続'] = (True, f"接続成功 (ドキュメントアクセス確認済み)")
+                    else:
+                        results['Google Docs API接続'] = (True, "基本接続成功、ドキュメントアクセス失敗")
+                else:
+                    results['Google Docs API接続'] = (True, "基本接続成功 (ドキュメントID未設定)")
+                    
     except Exception as e:
-        results['Google Docs API接続'] = (False, f"テストエラー: {str(e)}")
+        results['Google Docs API接続'] = (False, f"テストエラー: {str(e)[:100]}...")
+    
+    # 音声認識モジュールテスト（新規追加）
+    try:
+        print_info("音声認識モジュールテスト実行中...")
+        
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'recognition'))
+        from speech_recognition import SimpleStreamingSpeechRecognition
+        
+        # モジュールの基本チェック（実際の認識は行わない）
+        project_id = os.getenv('GOOGLE_CLOUD_PROJECT') or 'test-project'
+        
+        # 初期化テストのみ（実際のストリーミングは行わない）
+        recognition = SimpleStreamingSpeechRecognition(
+            language_code="ja-JP",
+            project_id=project_id,
+            verbose=False
+        )
+        
+        results['音声認識モジュール'] = (True, "モジュール初期化成功")
+        
+    except Exception as e:
+        results['音声認識モジュール'] = (False, f"初期化エラー: {str(e)[:100]}...")
+    
+    if verbose:
+        print_info("API接続テスト完了")
     
     return results
 
 def main():
     parser = argparse.ArgumentParser(description='MVP版環境確認スクリプト')
     parser.add_argument('--verbose', '-v', action='store_true', help='詳細出力')
-    parser.add_argument('--api-test', '-a', action='store_true', help='API接続テストを実行')
+    parser.add_argument('--api-test', '-a', action='store_true', help='基本API接続テストを実行')
+    parser.add_argument('--comprehensive-api-test', '-c', action='store_true', help='包括的API接続テスト（推奨：main.py起動前の事前チェック）')
     args = parser.parse_args()
 
     print_header("MVP版環境確認スクリプト")
+    
+    if args.comprehensive_api_test:
+        print_info("包括的API接続テストを実行します（main.py起動前の推奨チェック）")
     
     # 1. システム情報
     print_header("システム情報")
@@ -295,9 +367,13 @@ def main():
     for item, (status, details) in api_configs.items():
         print_status(item, status, details)
     
-    # 8. API接続テスト（オプション）
-    if args.api_test:
-        print_header("API接続テスト")
+    # 8. API接続テスト（基本版またはコンプリヘンシブ版）
+    if args.api_test or args.comprehensive_api_test:
+        if args.comprehensive_api_test:
+            print_header("包括的API接続テスト")
+        else:
+            print_header("基本API接続テスト")
+        
         api_tests = test_apis(args.verbose)
         for test, (status, details) in api_tests.items():
             print_status(test, status, details)
@@ -320,7 +396,9 @@ def main():
     
     if all_required_ok:
         print_status("システム準備状況", True, "MVP版実行準備完了")
-        print_info("次のステップ: APIキー設定後にシステムテストを実行してください")
+        if not (args.api_test or args.comprehensive_api_test):
+            print_info("API接続テストも実行する場合: python check_environment.py --comprehensive-api-test")
+        print_info("main.pyはAPI接続テストを省略して高速起動するよう最適化されています")
     else:
         print_status("システム準備状況", False, "必須要件が不足しています")
         print_warning("setup_mvp.shを実行してセットアップを完了してください")
@@ -336,6 +414,7 @@ def main():
         print_info("推奨機能が一部利用可能です")
     
     print(f"\n{Colors.CYAN}詳細なセットアップ手順については SETUP_GUIDE.md を参照してください{Colors.NC}")
+    print(f"{Colors.YELLOW}API接続テストは main.py 起動前に実行することを推奨: python check_environment.py --comprehensive-api-test{Colors.NC}")
 
 if __name__ == "__main__":
     main() 

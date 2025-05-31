@@ -167,30 +167,28 @@ class MVPConfig:
     
     def print_config(self):
         """設定内容を表示"""
-        print("\n=== MVP設定情報 ===")
-        print(f"発話言語: {self.source_lang}")
-        print(f"翻訳先言語: {self.target_lang}")
-        print(f"発話者名: {self.speaker_name}")
-        print(f"入力デバイス: {self.input_device if self.input_device is not None else 'デフォルト'} (0=ヘッドセット推奨)")
-        print(f"サンプリングレート: {self.sample_rate} Hz")
-        print(f"チャンクサイズ: {self.chunk_size} 秒")
-        print(f"音声認識モデル: {self.speech_model}")
-        
+        # print("\n=== MVP設定情報 ===")
+        # print(f"発話言語: {self.source_lang}")
+        # print(f"翻訳先言語: {self.target_lang}")
+        # print(f"発話者名: {self.speaker_name}")
+        # print(f"入力デバイス: {self.input_device if self.input_device is not None else 'デフォルト'} (0=ヘッドセット推奨)")
+        # print(f"サンプリングレート: {self.sample_rate} Hz")
+        # print(f"チャンクサイズ: {self.chunk_size} 秒")
+        # print(f"音声認識モデル: {self.speech_model}")
         # 機能有効/無効状態を表示
-        if self.transcription_only:
-            print("動作モード: 音声認識専用（翻訳・出力無効）")
-        else:
-            print(f"翻訳機能: {'無効' if self.disable_translation else '有効'}")
-            if not self.disable_translation:
-                print(f"Claudeモデル: {self.claude_model_name}")
-            print(f"Google Docs出力: {'無効' if self.disable_docs_output else '有効'}")
-            if not self.disable_docs_output:
-                print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
-        
-        print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
-        print(f"ログモード: {'詳細表示' if self.verbose else '簡潔表示'}")
-        print(f"デバッグモード: {'有効' if self.debug else '無効'}")
-        print("==================")
+        # if self.transcription_only:
+        #     print("動作モード: 音声認識専用（翻訳・出力無効）")
+        # else:
+        #     print(f"翻訳機能: {'無効' if self.disable_translation else '有効'}")
+        #     if not self.disable_translation:
+        #         print(f"Claudeモデル: {self.claude_model_name}")
+        #     print(f"Google Docs出力: {'無効' if self.disable_docs_output else '有効'}")
+        #     if not self.disable_docs_output:
+        #         print(f"Google DocsID: {self.google_docs_id if self.google_docs_id else '未指定'}")
+        # print(f"出力ディレクトリ: {self.output_dir if self.output_dir else '未指定'}")
+        # print(f"ログモード: {'詳細表示' if self.verbose else '簡潔表示'}")
+        # print(f"デバッグモード: {'有効' if self.debug else '無効'}")
+        # print("==================")
 
 
 def create_mvp_config_from_args(args) -> MVPConfig:

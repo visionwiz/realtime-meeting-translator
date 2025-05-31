@@ -21,12 +21,12 @@ class SimpleAudioCapture:
         self.last_audio_level_log_time = 0
         self.audio_level_log_interval = 3.0  # 3秒間隔でログ
         
-        print(f"🎤 シンプル音声キャプチャ初期化")
-        print(f"   デバイス: {self.input_device}")
-        print(f"   サンプルレート: {sample_rate}Hz")
-        print(f"   チャンクサイズ: {chunk_size}")
-        if not self.verbose:
-            print("   ログモード: 簡潔表示（最終結果のみ表示）")
+        # print(f"🎤 シンプル音声キャプチャ初期化")
+        # print(f"   デバイス: {self.input_device}")
+        # print(f"   サンプルレート: {sample_rate}Hz")
+        # print(f"   チャンクサイズ: {chunk_size}")
+        # if not self.verbose:
+        #     print("   ログモード: 簡潔表示（最終結果のみ表示）")
     
     def get_input_device_index(self, preferred_device):
         """入力デバイスのインデックスを取得"""
@@ -118,7 +118,7 @@ class SimpleAudioCapture:
             except:
                 pass
             audio.terminate()
-            print("🎤 音声キャプチャ終了")
+            # print("🎤 音声キャプチャ終了")
     
     def _pcm_to_wav(self, pcm_data):
         """PCMデータをWAVフォーマットに変換"""

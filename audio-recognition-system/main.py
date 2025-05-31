@@ -73,7 +73,7 @@ class SimpleAudioRecognitionSystem:
         if mvp_config.debug or mvp_config.verbose:
             self.SILENCE_TIMEOUT = 30   # デバッグモード: 30秒無音で一時停止
             self.MAX_RUNTIME = 60       # デバッグモード: 60秒（1分）で強制一時停止
-            print("🐛 デバッグモード: タイムアウト時間を短縮（無音30秒、実行1分）")
+            # print("🐛 デバッグモード: タイムアウト時間を短縮（無音30秒、実行1分）")
         else:
             self.SILENCE_TIMEOUT = 300  # 300秒（5分）無音で一時停止
             self.MAX_RUNTIME = 3600     # 3600秒（60分）で強制一時停止
@@ -98,11 +98,11 @@ class SimpleAudioRecognitionSystem:
                             # タイムスタンプも保存
                             self.active_placeholders[placeholder_id] = placeholder_timestamp
                             self.current_placeholder_id = placeholder_id
-                            print(f"📝 Placeholder inserted / プレースホルダー挿入: {placeholder_id}")
+                            # print(f"📝 Placeholder inserted / プレースホルダー挿入: {placeholder_id}")
                 else:
                     # 最終結果を翻訳処理用キューに追加
                     self.result_queue.put((transcript, self.current_placeholder_id))
-                    print(f"🎯 最終結果とプレースホルダーID: {self.current_placeholder_id}")
+                    # print(f"🎯 最終結果とプレースホルダーID: {self.current_placeholder_id}")
                     
                     # 現在のプレースホルダーIDをリセット（次の音声認識用）
                     self.current_placeholder_id = None
@@ -140,7 +140,7 @@ class SimpleAudioRecognitionSystem:
         self.translator = None
         if not mvp_config.disable_translation:
             self.translator = ClaudeTranslator(mvp_config.claude_api_key, mvp_config.claude_model_name)
-            print("✅ 翻訳機能を有効化")
+            # print(f"✅ 翻訳機能を有効化")
         else:
             print("🚫 翻訳機能を無効化")
         
@@ -153,7 +153,7 @@ class SimpleAudioRecognitionSystem:
                     mvp_config.google_token_path
                 )
                 self.docs_writer.set_document_id(mvp_config.google_docs_id)
-                print("✅ Google Docs出力を有効化")
+                # print(f"✅ Google Docs出力を有効化")
             except Exception as e:
                 print(f"⚠️ Google Docs初期化エラー: {e}")
                 self.docs_writer = None
@@ -171,17 +171,17 @@ class SimpleAudioRecognitionSystem:
             )
             print(f"📝 ログファイル: {self.transcription_log_path}")
         
-        print("✅ シンプル音声認識システム初期化完了")
+        # print("✅ シンプル音声認識システム初期化完了")
     
     def timeout_monitor_thread(self):
         """二重タイマー監視スレッド"""
-        print("🔄 タイムアウト監視スレッド開始")
+        # print("🔄 タイムアウト監視スレッド開始")
         
         while self.is_running.is_set():
             try:
                 with self.state_lock:
                     if self.system_state == SystemState.SHUTTING_DOWN:
-                        print("🛑 タイムアウト監視スレッド: システム終了により終了")
+                        # print("🛑 タイムアウト監視スレッド: システム終了により終了")
                         break
                     elif self.system_state != SystemState.ACTIVE:
                         # アクティブでない場合は1秒待機
@@ -208,17 +208,17 @@ class SimpleAudioRecognitionSystem:
                 print(f"❌ タイムアウト監視エラー: {e}")
                 time.sleep(2)
         
-        print("🏁 タイムアウト監視スレッド終了")
+        # print("🏁 タイムアウト監視スレッド終了")
     
     def keyboard_monitor_thread(self):
         """キーボード入力監視スレッド（ストリーミング中のq/x停止用）"""
-        print("⌨️ キーボード監視スレッド開始")
+        # print("⌨️ キーボード監視スレッド開始")
         
         while self.is_running.is_set():
             try:
                 with self.state_lock:
                     if self.system_state == SystemState.SHUTTING_DOWN:
-                        print("🛑 キーボード監視スレッド: システム終了により終了")
+                        # print("🛑 キーボード監視スレッド: システム終了により終了")
                         break
                     elif self.system_state in [SystemState.PAUSED, SystemState.WAITING_INPUT, SystemState.AUTHENTICATING]:
                         # アクティブでない場合や認証中は1秒待機（一時停止中は専用の入力待機を使用）
@@ -263,7 +263,7 @@ class SimpleAudioRecognitionSystem:
                     time.sleep(0.5)
                     continue
         
-        print("🏁 キーボード監視スレッド終了")
+        # print("🏁 キーボード監視スレッド終了")
     
     def _trigger_auto_pause(self, reason: PauseReason):
         """自動一時停止をトリガー"""
@@ -287,13 +287,14 @@ class SimpleAudioRecognitionSystem:
         
         # 音声キャプチャと認識を停止（状態変更後）
         try:
-            print("🛑 音声キャプチャ停止中...")
+            # print("🛑 音声キャプチャ停止中...")
             self.audio_capture.stop_capture()
-            print("🛑 音声認識停止中...")
+            # print("🛑 音声認識停止中...")
             self.speech_recognition.stop_recognition()
-            print("🛑 音声処理停止完了")
+            # print("🛑 音声処理停止完了")
         except Exception as e:
-            print(f"⚠️ 音声処理停止エラー: {e}")
+            # print(f"⚠️ 音声処理停止エラー: {e}")
+            pass
         
         # 少し待機してから入力待機に移行
         time.sleep(1)
@@ -307,16 +308,16 @@ class SimpleAudioRecognitionSystem:
             self.system_state = SystemState.WAITING_INPUT
         
         # 確実に表示されるよう、出力をフラッシュ
-        print("\n" + "=" * 60, flush=True)
-        print("=== 自動一時停止中 ===", flush=True)
-        print(f"理由: {reason_text}", flush=True)
-        print(f"時刻: {pause_time}", flush=True)
-        print(flush=True)
-        print("利用可能なコマンド:", flush=True)
-        print("  [Enter] : ストリーミング再開", flush=True)
-        print("  [q] または [x] : プログラム終了", flush=True)
-        print("=" * 60, flush=True)
-        print(flush=True)
+        # print("\n" + "=" * 60, flush=True)
+        # print("=== 自動一時停止中 ===", flush=True)
+        # print(f"理由: {reason_text}", flush=True)
+        # print(f"時刻: {pause_time}", flush=True)
+        # print(flush=True)
+        # print("利用可能なコマンド:", flush=True)
+        # print("  [Enter] : ストリーミング再開", flush=True)
+        # print("  [q] または [x] : プログラム終了", flush=True)
+        # print("=" * 60, flush=True)
+        # print(flush=True)
         
         while True:
             try:
@@ -362,9 +363,9 @@ class SimpleAudioRecognitionSystem:
             print("\n" + "=" * 60)
             print("▶️ ユーザー要求により再開（タイマーリセット）")
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
-            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
-            print("=" * 60)
+            # print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            # print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
+            # print("=" * 60)
             
             # 音声キャプチャと認識を再開
             threading.Thread(target=self.audio_capture.start_capture, daemon=True).start()
@@ -376,7 +377,7 @@ class SimpleAudioRecognitionSystem:
         with self.state_lock:
             self.system_state = SystemState.SHUTTING_DOWN
         
-        print("\n🛑 システム終了処理を開始します...")
+        # print("\n🛑 システム終了処理を開始します...")
         self.is_running.clear()
         
         if hasattr(self, 'audio_capture'):
@@ -402,7 +403,7 @@ class SimpleAudioRecognitionSystem:
     
     def result_processing_thread(self):
         """認識結果を処理するスレッド（翻訳・出力）"""
-        print("🔄 結果処理スレッド開始")
+        # print("🔄 結果処理スレッド開始")
         
         while self.is_running.is_set():
             try:
@@ -469,7 +470,7 @@ class SimpleAudioRecognitionSystem:
                             # プレースホルダーがあれば更新、なければ通常の書き込み
                             if placeholder_id and placeholder_id in self.active_placeholders:
                                 if self.docs_writer.update_placeholder(placeholder_id, meeting_entry):
-                                    print(f"📄 Placeholder updated / プレースホルダー更新完了: {placeholder_id}")
+                                    # print(f"📄 Placeholder updated / プレースホルダー更新完了: {placeholder_id}")
                                     # 使用済みプレースホルダーを削除
                                     del self.active_placeholders[placeholder_id]
                                 else:
@@ -510,7 +511,7 @@ class SimpleAudioRecognitionSystem:
                 print(f"❌ 結果処理エラー: {e}")
                 time.sleep(1.0)
         
-        print("🔄 結果処理スレッド終了")
+        # print("🔄 結果処理スレッド終了")
     
     def _print_result(self, translation_result: TranslationResult):
         """結果をコンソールに出力"""
@@ -529,15 +530,16 @@ class SimpleAudioRecognitionSystem:
     
     def run(self):
         """システム実行（再接続機能付き）"""
-        print("🚀 シンプル音声認識システム開始（再接続機能付き、無音自動一時停止機能付き）")
+        # print("🚀 シンプル音声認識システム開始（再接続機能付き、無音自動一時停止機能付き）")
         
         # 設定表示
         self.mvp_config.print_config()
         
-        # API接続テスト
-        if not self._test_connections():
-            print("❌ API接続テスト失敗")
-            return
+        # API接続テストを無効化（起動時間短縮のため）
+        # API接続テストは check_environment.py --api-test で実行してください
+        # if not self._test_connections():
+        #     print("❌ API接続テスト失敗")
+        #     return
         
         # タイマー初期化
         current_time = time.time()
@@ -560,39 +562,44 @@ class SimpleAudioRecognitionSystem:
         
         # ステータス表示
         if self.mvp_config.transcription_only:
-            print("\n=== シンプル音声認識専用システム稼働中（継続的再接続機能付き） ===")
-            print(f"発話者: {self.mvp_config.speaker_name}")
-            print(f"認識言語: {self.mvp_config.source_lang}")
-            print(f"出力ファイル: {self.transcription_log_path}")
+            # print("\n=== シンプル音声認識専用システム稼働中（継続的再接続機能付き） ===")
+            # print(f"発話者: {self.mvp_config.speaker_name}")
+            # print(f"認識言語: {self.mvp_config.source_lang}")
+            # print(f"出力ファイル: {self.transcription_log_path}")
+            pass
         else:
-            print("\n=== シンプル音声認識・翻訳・Google Docs出力システム稼働中（継続的再接続機能付き） ===")
-            print(f"発話者: {self.mvp_config.speaker_name}")
+            # print("\n=== シンプル音声認識・翻訳・Google Docs出力システム稼働中（継続的再接続機能付き） ===")
+            # print(f"発話者: {self.mvp_config.speaker_name}")
             if not self.mvp_config.disable_translation:
-                print(f"翻訳方向: {self.mvp_config.source_lang} → {self.mvp_config.target_lang}")
+                # print(f"翻訳方向: {self.mvp_config.source_lang} → {self.mvp_config.target_lang}")
+                pass
             else:
                 print(f"認識言語: {self.mvp_config.source_lang} (翻訳無効)")
         
-        print("⚡ 継続的ストリーミング機能: Googleのタイムアウト制限を自動回避")
+        # print("⚡ 継続的ストリーミング機能: Googleのタイムアウト制限を自動回避")
         
         # デバッグモード表示
         if self.mvp_config.debug or self.mvp_config.verbose:
             print(f"🐛 デバッグモード - 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
             print(f"🐛 デバッグモード - 実行時間制限: {self.MAX_RUNTIME}秒で自動一時停止")
         else:
-            print(f"🔔 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
-            print(f"⏰ 実行時間制限: {self.MAX_RUNTIME//60}分で自動一時停止")
+            # print(f"🔔 無音自動一時停止: {self.SILENCE_TIMEOUT}秒間無音で一時停止")
+            # print(f"⏰ 実行時間制限: {self.MAX_RUNTIME//60}分で自動一時停止")
+            pass
         
         print("Ctrl+C または 'q'/'x' + Enter で終了")
         
         # タイマー開始ログ
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if self.mvp_config.debug or self.mvp_config.verbose:
-            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
-            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME}秒後に自動一時停止）")
+            # print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            # print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME}秒後に自動一時停止）")
+            pass
         else:
-            print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
-            print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
-        print("=" * 60)
+            # print(f"🔔 [{timestamp}] 🔔 無音タイマー開始（{self.SILENCE_TIMEOUT}秒後に自動一時停止）")
+            # print(f"🔔 [{timestamp}] 🔔 実行時間タイマー開始（{self.MAX_RUNTIME//60}分後に自動一時停止）")
+            pass
+        # print("=" * 60)
         
         try:
             while True:
@@ -601,7 +608,7 @@ class SimpleAudioRecognitionSystem:
                         break
                 time.sleep(1)
         except KeyboardInterrupt:
-            print("\n\n👋 ユーザーによる中断要求")
+            # print("\n\n👋 ユーザーによる中断要求")
             with self.state_lock:
                 self.system_state = SystemState.SHUTTING_DOWN
             self.is_running.clear()
@@ -609,11 +616,11 @@ class SimpleAudioRecognitionSystem:
             self.speech_recognition.stop_recognition()
             time.sleep(2)  # 終了処理待機
         
-        print("🏁 シンプルシステムを終了しました。")
+        # print("🏁 シンプルシステムを終了しました。")
     
     def _continuous_speech_recognition_thread(self):
         """継続的ストリーミング認識スレッド（再接続機能）"""
-        print("🔄 継続的ストリーミング認識スレッド開始")
+        # print("🔄 継続的ストリーミング認識スレッド開始")
         reconnection_count = 0
         
         while self.is_running.is_set():
@@ -630,9 +637,10 @@ class SimpleAudioRecognitionSystem:
                 current_time = time.strftime('%H:%M:%S', time.localtime())
                 
                 if reconnection_count == 1:
-                    print(f"🎤 [{current_time}] ストリーミング認識開始（接続 #{reconnection_count}）")
+                    # print(f"🎤 [{current_time}] ストリーミング認識開始（接続 #{reconnection_count}）")
+                    pass
                 else:
-                    print(f"🔄 [{current_time}] ストリーミング再接続（接続 #{reconnection_count}）")
+                    # print(f"🔄 [{current_time}] ストリーミング再接続（接続 #{reconnection_count}）")
                     # 再接続前に状態をリセット
                     self.speech_recognition._reset_for_reconnection()
                 
@@ -643,10 +651,10 @@ class SimpleAudioRecognitionSystem:
                 with self.state_lock:
                     if self.system_state == SystemState.ACTIVE and self.is_running.is_set():
                         current_time = time.strftime('%H:%M:%S', time.localtime())
-                        print(f"✅ [{current_time}] ストリーミング正常終了 - 即座に再接続します")
+                        # print(f"✅ [{current_time}] ストリーミング正常終了 - 即座に再接続します")
                         continue
                     else:
-                        print(f"🛑 システム状態変更により継続的ストリーミングを終了 (状態: {self.system_state.value})")
+                        # print(f"🛑 システム状態変更により継続的ストリーミングを終了 (状態: {self.system_state.value})")
                         break
                     
             except Exception as e:
@@ -655,53 +663,23 @@ class SimpleAudioRecognitionSystem:
                 
                 with self.state_lock:
                     if self.system_state == SystemState.ACTIVE and self.is_running.is_set():
-                        print("🔄 エラー後も継続 - 即座に再接続を試行します")
+                        # print("🔄 エラー後も継続 - 即座に再接続を試行します")
                         continue
                     else:
-                        print(f"🛑 システム状態変更のため継続的ストリーミングを終了 (状態: {self.system_state.value})")
+                        # print(f"🛑 システム状態変更のため継続的ストリーミングを終了 (状態: {self.system_state.value})")
                         break
         
-        print("🏁 継続的ストリーミング認識スレッド終了")
+        # print("🏁 継続的ストリーミング認識スレッド終了")
     
-    def _test_connections(self) -> bool:
-        """API接続テスト（既存再利用）"""
-        print("🔍 API接続テスト開始")
-        
-        # Claude翻訳テスト
-        if self.translator:
-            if not self.translator.test_connection():
-                print("❌ Claude API接続テスト失敗")
-                return False
-            print("✅ Claude API接続成功")
-        else:
-            print("🚫 Claude翻訳テストをスキップ")
-        
-        # Google Docs接続テスト
-        if self.docs_writer:
-            if not self.docs_writer.test_connection():
-                print("❌ Google Docs API接続テスト失敗")
-                return False
-            print("✅ Google Docs API接続成功")
-            
-            if not self.docs_writer.verify_document_access():
-                print("❌ Google Docsドキュメントアクセス確認失敗")
-                return False
-            print("✅ Google Docsドキュメントアクセス確認成功")
-        else:
-            print("🚫 Google Docs出力テストをスキップ")
-        
-        print("✅ API接続テスト完了")
-        return True
-
     def _auth_state_callback(self, state: str):
         """認証状態変更時のコールバック"""
         if state == "start":
             with self.state_lock:
-                print("🔒 認証処理開始 - キーボード監視を一時停止")
+                # print("🔒 認証処理開始 - キーボード監視を一時停止")
                 self.system_state = SystemState.AUTHENTICATING
         elif state == "end":
             with self.state_lock:
-                print("🔓 認証処理終了 - システム状態を復旧")
+                # print("🔓 認証処理終了 - システム状態を復旧")
                 # 認証前の状態に戻す（通常はACTIVE）
                 if self.system_state == SystemState.AUTHENTICATING:
                     self.system_state = SystemState.ACTIVE
@@ -788,20 +766,23 @@ def create_recognition_callback(target_lang, speaker_name, transcription_only):
             if transcript.strip():
                 # 結果表示
                 status = "🎯 最終" if is_final else "📝 途中"
-                print(f"\n{status}認識結果:")
-                print(f"  発話者: {speaker_name}")
-                print(f"  内容: {transcript}")
-                print(f"  信頼度: {confidence:.2f}")
+                # print(f"\n{status}認識結果:")
+                # print(f"  発話者: {speaker_name}")
+                # print(f"  内容: {transcript}")
+                # print(f"  信頼度: {confidence:.2f}")
                 
                 if transcription_only:
-                    print("  翻訳: スキップ（transcription-onlyモード）")
+                    # print("  翻訳: スキップ（transcription-onlyモード）")
+                    pass
                 else:
                     # TODO: 翻訳機能実装
-                    print(f"  翻訳({target_lang}): [翻訳機能未実装]")
-                print("-" * 50)
+                    # print(f"  翻訳({target_lang}): [翻訳機能未実装]")
+                    pass
+                # print("-" * 50)
                 
         except Exception as e:
-            print(f"⚠️ 認識結果処理エラー: {e}")
+            # print(f"⚠️ 認識結果処理エラー: {e}")
+            pass
     
     return on_recognition_result
 
@@ -809,8 +790,8 @@ def create_recognition_callback(target_lang, speaker_name, transcription_only):
 def setup_signal_handlers(audio_capture, speech_recognition):
     """シグナルハンドラー設定"""
     def signal_handler(signum, frame):
-        print(f"\n🛑 終了シグナル受信 (シグナル: {signum})")
-        print("システム終了中...")
+        # print(f"\n🛑 終了シグナル受信 (シグナル: {signum})")
+        # print("システム終了中...")
         
         # 音声キャプチャ停止
         if audio_capture:
