@@ -76,7 +76,7 @@ class SimpleAudioRecognitionSystem:
             print("🐛 デバッグモード: タイムアウト時間を短縮（無音30秒、実行1分）")
         else:
             self.SILENCE_TIMEOUT = 300  # 300秒（5分）無音で一時停止
-            self.MAX_RUNTIME = 1800     # 1800秒（30分）で強制一時停止
+            self.MAX_RUNTIME = 3600     # 3600秒（60分）で強制一時停止
         
         # 音声認識結果を処理するキュー（1つだけ！）
         self.result_queue = queue.Queue()

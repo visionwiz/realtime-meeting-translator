@@ -22,12 +22,13 @@ class SimpleStreamingSpeechRecognition:
     """Google Cloud Speech-to-Text V2 + chirp_2の真のストリーミング実装（公式ドキュメント完全準拠）"""
     
     def __init__(self, language_code="ja-JP", result_callback=None, 
-                 project_id=None, region="global", verbose=False, auth_state_callback=None):
+                 project_id=None, region="global", verbose=False, auth_state_callback=None, enable_phrase_set=True):
         # 基本設定
         self.language_code = language_code
         self.result_callback = result_callback
         self.auth_state_callback = auth_state_callback  # 認証状態変更通知用コールバック
         self.verbose = verbose
+        self.enable_phrase_set = enable_phrase_set  # フレーズセット適応の有効/無効切り替え
         
         # 経過時間デバッグ用
         self.start_time = None
@@ -60,8 +61,12 @@ class SimpleStreamingSpeechRecognition:
         print(f"   プロジェクト: {self.project_id}")
         print(f"   リージョン: {self.region}")
         print(f"   言語: {language_code}")
-        print(f"   モデル: long + インラインフレーズセット適応（13フレーズ、boost最大値20）")
-        print(f"   フレーズセット: せんせいフォト、メディアセレクター、コドモン、子どもん等")
+        if self.enable_phrase_set:
+            print(f"   モデル: long + インラインフレーズセット適応（13フレーズ、boost最大値20）")
+            print(f"   フレーズセット: せんせいフォト、メディアセレクター、コドモン、子どもん等")
+        else:
+            print(f"   モデル: long（フレーズセット適応無効 - 比較テスト用）")
+            print(f"   フレーズセット: 無効化（効果検証用）")
         print(f"   Voice Activity Detection: 有効（開始10秒待機、終了3秒検出）- テスト用設定")
         if not self.verbose:
             print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
@@ -283,33 +288,52 @@ class SimpleStreamingSpeechRecognition:
             if self.verbose:
                 print(f"🔧 Recognizer: {recognizer_name}")
             
-            # 認識設定（明示的PCMフォーマット指定 + インラインフレーズセット適応）
-            # Google Cloud コンソールの設定内容をインラインで実装 + 表記揺れ対応 + boost最大化
-            phrase_set = speech_v2.types.PhraseSet(
-                phrases=[
-                    {"value": "アンレジスタードフェイス", "boost": 20.0},  # boost最大化
-                    {"value": "アンレジスタード", "boost": 20.0},          # boost最大化
-                    {"value": "メディアセレクター", "boost": 20.0},         # boost最大化
-                    {"value": "メディアセレクタ", "boost": 20.0},          # boost最大化
-                    {"value": "せんせいフォト", "boost": 20.0},            # boost最大化
-                    {"value": "先生フォト", "boost": 20.0},               # boost最大化
-                    {"value": "とりんく", "boost": 20.0},                 # boost最大化
-                    {"value": "トリンク", "boost": 20.0},                 # boost最大化
-                    {"value": "コドモン", "boost": 20.0},                 # boost最大化
-                    {"value": "こどもん", "boost": 20.0},                 # boost最大化
-                    {"value": "子供ん", "boost": 20.0},                  # 表記揺れ追加
-                    {"value": "子どもん", "boost": 20.0},                 # 表記揺れ追加
-                    {"value": "codmon", "boost": 20.0}                   # boost最大化
-                ]
-            )
-            
-            speech_adaptation = speech_v2.types.SpeechAdaptation(
-                phrase_sets=[
-                    speech_v2.types.SpeechAdaptation.AdaptationPhraseSet(
-                        inline_phrase_set=phrase_set
-                    )
-                ]
-            )
+            # 認識設定（明示的PCMフォーマット指定 + 条件付きインラインフレーズセット適応）
+            if self.enable_phrase_set:
+                # Google Cloud コンソールの設定内容をインラインで実装 + 表記揺れ対応 + boost最大化
+                phrase_set = speech_v2.types.PhraseSet(
+                    phrases=[
+                        {"value": "アンレジスタードフェイス", "boost": 20.0},  # boost最大化
+                        {"value": "アンレジスタード", "boost": 20.0},          # boost最大化
+                        {"value": "メディアセレクター", "boost": 20.0},         # boost最大化
+                        {"value": "メディアセレクタ", "boost": 20.0},          # boost最大化
+                        {"value": "せんせいフォト", "boost": 20.0},            # boost最大化
+                        {"value": "先生フォト", "boost": 20.0},               # boost最大化
+                        {"value": "とりんく", "boost": 20.0},                 # boost最大化
+                        {"value": "トリンク", "boost": 20.0},                 # boost最大化
+                        {"value": "コドモン", "boost": 20.0},                 # boost最大化
+                        {"value": "こどもん", "boost": 20.0},                 # boost最大化
+                        {"value": "子供ん", "boost": 20.0},                  # 表記揺れ追加
+                        {"value": "子どもん", "boost": 20.0},                 # 表記揺れ追加
+                        {"value": "codmon", "boost": 20.0}                   # boost最大化
+                    ]
+                )
+                
+                # デバッグ情報: フレーズセット内容確認
+                if self.verbose:
+                    print(f"🔧 フレーズセット詳細:")
+                    for i, phrase in enumerate(phrase_set.phrases, 1):
+                        print(f"   {i:2d}. {phrase.value} (boost: {phrase.boost})")
+                
+                speech_adaptation = speech_v2.types.SpeechAdaptation(
+                    phrase_sets=[
+                        speech_v2.types.SpeechAdaptation.AdaptationPhraseSet(
+                            inline_phrase_set=phrase_set
+                        )
+                    ]
+                )
+                adaptation_config = speech_adaptation
+                model_description = "long + インラインフレーズセット適応（13フレーズ、boost最大値20）"
+                
+                # デバッグ情報: アダプテーション設定確認
+                if self.verbose:
+                    print(f"🔧 SpeechAdaptation設定完了")
+                    print(f"   フレーズセット数: {len(speech_adaptation.phrase_sets)}")
+                    print(f"   インラインフレーズセット使用: True")
+            else:
+                # フレーズセット適応なし
+                adaptation_config = None
+                model_description = "long（フレーズセット適応なし - 比較テスト用）"
             
             recognition_config = speech_v2.types.RecognitionConfig(
                 explicit_decoding_config=speech_v2.types.ExplicitDecodingConfig(
@@ -319,16 +343,30 @@ class SimpleStreamingSpeechRecognition:
                 ),
                 language_codes=[self.language_code],
                 model="long",
-                adaptation=speech_adaptation,  # インラインフレーズセット適応を追加
+                adaptation=adaptation_config,  # 条件付きフレーズセット適応
                 features=speech_v2.types.RecognitionFeatures(
                     enable_automatic_punctuation=True,
                     enable_word_time_offsets=True,
                 )
             )
             
-            # Voice Activity Detection設定（テスト用：10秒でタイムアウト）
-            speech_start_timeout = duration_pb2.Duration(seconds=10)  # 10秒でタイムアウト（再接続テスト用）
-            speech_end_timeout = duration_pb2.Duration(seconds=3)     # 音声終了から3秒でis_final送信
+            # デバッグ情報: 最終的な認識設定確認
+            if self.verbose:
+                print(f"🔧 RecognitionConfig最終確認:")
+                print(f"   モデル: {recognition_config.model}")
+                print(f"   言語: {recognition_config.language_codes}")
+                print(f"   アダプテーション設定: {'有効' if recognition_config.adaptation else '無効'}")
+                if recognition_config.adaptation:
+                    print(f"   フレーズセット数: {len(recognition_config.adaptation.phrase_sets)}")
+                    if hasattr(recognition_config.adaptation.phrase_sets[0], 'inline_phrase_set'):
+                        phrase_count = len(recognition_config.adaptation.phrase_sets[0].inline_phrase_set.phrases)
+                        print(f"   インラインフレーズ数: {phrase_count}")
+                print(f"   自動句読点: {recognition_config.features.enable_automatic_punctuation}")
+                print(f"   単語タイムオフセット: {recognition_config.features.enable_word_time_offsets}")
+            
+            # Voice Activity Detection設定（会議翻訳向け：最大待機時間設定）
+            speech_start_timeout = duration_pb2.Duration(seconds=60)  # 60秒（1分）待機（会議での長い無音に対応）
+            speech_end_timeout = duration_pb2.Duration(seconds=1, nanos=500000000)  # 1.5秒でis_final送信（リアルタイム性重視）
             voice_activity_timeout = speech_v2.types.StreamingRecognitionFeatures.VoiceActivityTimeout(
                 speech_start_timeout=speech_start_timeout,
                 speech_end_timeout=speech_end_timeout
@@ -413,12 +451,52 @@ class SimpleStreamingSpeechRecognition:
                                         print(f"   経過時間: [{self._format_elapsed_time(elapsed)}]")
                                         if self.verbose:
                                             print(f"   信頼度: {confidence:.2f}")
+                                        
+                                        # フレーズセット適応情報の確認
+                                        if hasattr(result, 'adaptation_info'):
+                                            adaptation_info = result.adaptation_info
+                                            print(f"🔍 SpeechAdaptationInfo検出:")
+                                            
+                                            if hasattr(adaptation_info, 'adaptation_timeout') and adaptation_info.adaptation_timeout:
+                                                print(f"   ⚠️ フレーズセット適応タイムアウト")
+                                                if hasattr(adaptation_info, 'timeout_message'):
+                                                    print(f"   📝 タイムアウトメッセージ: {adaptation_info.timeout_message}")
+                                            else:
+                                                print(f"   ✅ フレーズセット適応正常動作")
+                                            
+                                            # 詳細な適応情報を表示
+                                            if hasattr(adaptation_info, 'adaptations'):
+                                                print(f"   📊 適応詳細: {len(adaptation_info.adaptations)}件の適応")
+                                                for i, adaptation in enumerate(adaptation_info.adaptations):
+                                                    print(f"     {i+1}. {adaptation}")
+                                            
+                                            # その他の利用可能なフィールドを表示
+                                            adaptation_fields = [field for field in dir(adaptation_info) if not field.startswith('_')]
+                                            if self.verbose:
+                                                print(f"   🔧 利用可能フィールド: {adaptation_fields}")
+                                                
+                                        elif self.enable_phrase_set:
+                                            print("📝 SpeechAdaptationInfo未提供（フレーズセット有効だが情報なし）")
+                                        elif self.verbose:
+                                            print("📝 SpeechAdaptationInfo未提供（フレーズセット無効）")
+                                        
+                                        # 結果をコールバック関数に送信（ログ表示はしない）
+                                        if self.result_callback:
+                                            try:
+                                                self.result_callback(transcript, confidence, is_final)
+                                            except Exception as callback_error:
+                                                print(f"\n❌ コールバック送信エラー: {callback_error}")
+                                        
+                                        # is_final=True受信後、即座にストリーミング終了して再接続を最優先
+                                        print(f"🔄 最終結果受信完了 - 即座に再接続準備 [{self._format_elapsed_time(elapsed)}]")
+                                        return  # レスポンスループを即座に終了
+                                            
                                     elif self.verbose:
                                         # verboseモードでのみ途中結果を表示
                                         print(f"📝 途中結果: {transcript}")
                                     
-                                    # 結果をコールバック関数に送信（ログ表示はしない）
-                                    if self.result_callback:
+                                    # 途中結果のコールバック送信（最終結果は上記で処理済み）
+                                    if not is_final and self.result_callback:
                                         try:
                                             self.result_callback(transcript, confidence, is_final)
                                         except Exception as callback_error:
@@ -433,10 +511,6 @@ class SimpleStreamingSpeechRecognition:
                         if hasattr(response, 'error'):
                             print(f"❌ エラー情報: {response.error}")
                 
-                # レスポンスストリーム正常終了
-                elapsed = self._get_elapsed_time()
-                print(f"📨 レスポンスストリーム正常終了 [{self._format_elapsed_time(elapsed)}]")
-            
             except Exception as response_error:
                 elapsed = self._get_elapsed_time()
                 print(f"❌ レスポンス処理中エラー [{self._format_elapsed_time(elapsed)}]: {response_error}")
