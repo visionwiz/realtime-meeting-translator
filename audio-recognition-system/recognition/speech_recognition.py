@@ -60,6 +60,8 @@ class SimpleStreamingSpeechRecognition:
         print(f"   プロジェクト: {self.project_id}")
         print(f"   リージョン: {self.region}")
         print(f"   言語: {language_code}")
+        print(f"   モデル: long + インラインフレーズセット適応（13フレーズ、boost最大値20）")
+        print(f"   フレーズセット: せんせいフォト、メディアセレクター、コドモン、子どもん等")
         print(f"   Voice Activity Detection: 有効（開始10秒待機、終了3秒検出）- テスト用設定")
         if not self.verbose:
             print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
@@ -281,7 +283,34 @@ class SimpleStreamingSpeechRecognition:
             if self.verbose:
                 print(f"🔧 Recognizer: {recognizer_name}")
             
-            # 認識設定（明示的PCMフォーマット指定）
+            # 認識設定（明示的PCMフォーマット指定 + インラインフレーズセット適応）
+            # Google Cloud コンソールの設定内容をインラインで実装 + 表記揺れ対応 + boost最大化
+            phrase_set = speech_v2.types.PhraseSet(
+                phrases=[
+                    {"value": "アンレジスタードフェイス", "boost": 20.0},  # boost最大化
+                    {"value": "アンレジスタード", "boost": 20.0},          # boost最大化
+                    {"value": "メディアセレクター", "boost": 20.0},         # boost最大化
+                    {"value": "メディアセレクタ", "boost": 20.0},          # boost最大化
+                    {"value": "せんせいフォト", "boost": 20.0},            # boost最大化
+                    {"value": "先生フォト", "boost": 20.0},               # boost最大化
+                    {"value": "とりんく", "boost": 20.0},                 # boost最大化
+                    {"value": "トリンク", "boost": 20.0},                 # boost最大化
+                    {"value": "コドモン", "boost": 20.0},                 # boost最大化
+                    {"value": "こどもん", "boost": 20.0},                 # boost最大化
+                    {"value": "子供ん", "boost": 20.0},                  # 表記揺れ追加
+                    {"value": "子どもん", "boost": 20.0},                 # 表記揺れ追加
+                    {"value": "codmon", "boost": 20.0}                   # boost最大化
+                ]
+            )
+            
+            speech_adaptation = speech_v2.types.SpeechAdaptation(
+                phrase_sets=[
+                    speech_v2.types.SpeechAdaptation.AdaptationPhraseSet(
+                        inline_phrase_set=phrase_set
+                    )
+                ]
+            )
+            
             recognition_config = speech_v2.types.RecognitionConfig(
                 explicit_decoding_config=speech_v2.types.ExplicitDecodingConfig(
                     encoding=speech_v2.types.ExplicitDecodingConfig.AudioEncoding.LINEAR16,
@@ -290,6 +319,7 @@ class SimpleStreamingSpeechRecognition:
                 ),
                 language_codes=[self.language_code],
                 model="long",
+                adaptation=speech_adaptation,  # インラインフレーズセット適応を追加
                 features=speech_v2.types.RecognitionFeatures(
                     enable_automatic_punctuation=True,
                     enable_word_time_offsets=True,
