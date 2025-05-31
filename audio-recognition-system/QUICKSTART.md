@@ -1,4 +1,4 @@
-# 🚀 MVP版クイックスタートガイド
+# 🚀 シンプル版クイックスタートガイド
 
 オンライン会議用リアルタイム音声認識・翻訳・Google Docs出力システムを**5分で構築**
 
@@ -40,14 +40,14 @@ source venv_mvp/bin/activate
 python check_environment.py
 
 # システムテスト実行
-python main_mvp.py --source-lang ja --target-lang en --speaker-name "テストユーザー"
+python main.py --source-lang ja --target-lang en --speaker-name "テストユーザー"
 ```
 
 ## 🎯 基本的な使用例
 
 ### 日本語→英語翻訳
 ```bash
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎"
@@ -55,7 +55,7 @@ python main_mvp.py \
 
 ### 英語→日本語翻訳
 ```bash
-python main_mvp.py \
+python main.py \
   --source-lang en \
   --target-lang ja \
   --speaker-name "John Smith"
@@ -66,7 +66,7 @@ python main_mvp.py \
 # Google Docsドキュメントを作成してIDを取得
 # https://docs.google.com/
 
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
@@ -97,7 +97,7 @@ pip install anthropic google-api-python-client pyaudio torch mlx-whisper
 python list_audio_devices.py
 
 # 特定デバイス指定
-python main_mvp.py --input-device 0 --source-lang ja --target-lang en --speaker-name "テスト"
+python main.py --input-device 0 --source-lang ja --target-lang en --speaker-name "テスト"
 ```
 
 ### ❌ API接続エラー
@@ -111,11 +111,11 @@ python check_environment.py --api-test
 
 ## 📊 期待される性能
 
-| 項目 | MVP版 | 理想版 |
-|------|-------|--------|
+| 項目 | シンプル版 | 理想版 |
+|------|-----------|--------|
 | **遅延** | 3-5秒 | 2-3秒 |
-| **音声認識** | MLX Whisper (3-10倍高速) | WhisperKit (15倍高速) |
-| **翻訳品質** | 単発翻訳 | 文脈保持翻訳 |
+| **音声認識** | Google Cloud Speech V2 (ストリーミング特化) | WhisperKit (15倍高速) |
+| **翻訳品質** | Claude 3.7 Sonnet | 文脈保持翻訳 |
 | **対応言語** | 7言語 | 7言語+ |
 
 ## 🎉 成功確認

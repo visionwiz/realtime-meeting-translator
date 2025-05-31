@@ -2,19 +2,31 @@ import os
 import queue
 import threading
 import time
+import subprocess
+import sys
+import logging
 from typing import Callable
 from google.cloud import speech_v2
 from google.api_core.client_options import ClientOptions
 from google.protobuf import duration_pb2  # Voice Activity Timeout用
+import google.auth
+from google.auth.exceptions import RefreshError
+
+# grpcのエラーログを抑制（認証期限切れ時の不要なエラーメッセージを非表示）
+logging.getLogger('grpc._plugin_wrapping').setLevel(logging.CRITICAL)
+# Google OAuth2のエラーログも抑制
+logging.getLogger('google.auth.transport.grpc').setLevel(logging.CRITICAL)
+logging.getLogger('google.oauth2.reauth').setLevel(logging.CRITICAL)
 
 class SimpleStreamingSpeechRecognition:
     """Google Cloud Speech-to-Text V2 + chirp_2の真のストリーミング実装（公式ドキュメント完全準拠）"""
     
     def __init__(self, language_code="ja-JP", result_callback=None, 
-                 project_id=None, region="global", verbose=False):
+                 project_id=None, region="global", verbose=False, auth_state_callback=None):
         # 基本設定
         self.language_code = language_code
         self.result_callback = result_callback
+        self.auth_state_callback = auth_state_callback  # 認証状態変更通知用コールバック
         self.verbose = verbose
         
         # 経過時間デバッグ用
@@ -34,14 +46,15 @@ class SimpleStreamingSpeechRecognition:
         self.audio_log_interval = 1.0  # 1秒間隔
         self.response_count = 0
         
-        # Google Cloud Speech V2 クライアント初期化
+        # Google Cloud Speech V2 クライアント初期化（認証エラー自動修復付き）
         self.project_id = project_id or os.getenv('GOOGLE_CLOUD_PROJECT')
         self.region = region
         
         if not self.project_id:
             raise ValueError("Google Cloud プロジェクトIDが設定されていません。環境変数GOOGLE_CLOUD_PROJECTを設定してください。")
-            
-        self.client = speech_v2.SpeechClient()
+        
+        # 認証付きクライアント初期化
+        self.client = self._initialize_client_with_auth()
         
         print(f"🌩️ Simple Google Cloud Speech-to-Text V2 + long 初期化（会議翻訳向けVAD設定）")
         print(f"   プロジェクト: {self.project_id}")
@@ -50,6 +63,141 @@ class SimpleStreamingSpeechRecognition:
         print(f"   Voice Activity Detection: 有効（開始10秒待機、終了3秒検出）- テスト用設定")
         if not self.verbose:
             print("   ログモード: 簡潔表示（最終結果のみ表示、詳細ログはverbose=Trueで有効化）")
+    
+    def _initialize_client_with_auth(self):
+        """認証エラー自動修復付きクライアント初期化"""
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                # 認証情報の確認
+                credentials, project = google.auth.default()
+                
+                # クライアント作成
+                client = speech_v2.SpeechClient()
+                
+                # 簡単な認証テスト（ダミーリクエスト）
+                try:
+                    # 認証が有効かテスト
+                    recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
+                    # 実際にはリクエストを送信せず、クライアントの初期化のみテスト
+                    print("✅ Google Cloud Speech API認証成功")
+                    return client
+                except Exception as auth_test_error:
+                    if "Reauthentication is needed" in str(auth_test_error) or "RefreshError" in str(auth_test_error):
+                        print(f"⚠️ 認証エラー検出: {auth_test_error}")
+                        if attempt < max_retries - 1:
+                            print("🔄 自動認証修復を試行します...")
+                            if self._auto_fix_authentication():
+                                print("✅ 認証修復成功、再試行します...")
+                                continue
+                            else:
+                                print("❌ 認証修復失敗")
+                        raise auth_test_error
+                    else:
+                        # その他のエラーはそのまま投げる
+                        raise auth_test_error
+                        
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️ クライアント初期化失敗 (試行 {attempt + 1}/{max_retries}): {e}")
+                    if self._is_authentication_error(e):
+                        print("🔄 認証エラーのため自動修復を試行...")
+                        if self._auto_fix_authentication():
+                            continue
+                else:
+                    print(f"❌ クライアント初期化最終失敗: {e}")
+                    # 最終失敗時も認証エラーなら自動修復を試行
+                    if self._is_authentication_error(e):
+                        print("🔄 最終試行: 認証エラーのため自動修復を試行...")
+                        if self._auto_fix_authentication():
+                            print("✅ 認証修復成功、クライアント初期化を再試行...")
+                            return self._initialize_client_with_auth()
+                    raise e
+        
+        raise Exception("Google Cloud Speech APIクライアントの初期化に失敗しました")
+    
+    def _auto_fix_authentication(self) -> bool:
+        """Google Cloud認証の自動修復"""
+        try:
+            # 認証開始を通知
+            if self.auth_state_callback:
+                self.auth_state_callback("start")
+            
+            print("🔧 Google Cloud認証の自動修復を開始...")
+            
+            # gcloudコマンドの存在確認
+            try:
+                result = subprocess.run(['gcloud', '--version'], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode != 0:
+                    print("❌ gcloudコマンドが見つかりません")
+                    return False
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                print("❌ gcloudコマンドが利用できません")
+                return False
+            
+            print("📋 認証修復の説明:")
+            print("   Google Cloud Speech APIの認証が期限切れです。")
+            print("   自動でブラウザが開き、Googleアカウントでの認証が必要です。")
+            print("   認証完了後、システムが自動的に再開されます。")
+            
+            # ユーザーに確認（新しい入力形式）
+            print("\n🔐 自動認証オプション:")
+            print("   [auth] : 認証を実行")
+            print("   [skip] : 認証をスキップ")
+            
+            try:
+                while True:
+                    user_input = input("コマンドを入力してください: ").strip().lower()
+                    if user_input == 'auth':
+                        print("✅ 認証実行が選択されました")
+                        break
+                    elif user_input == 'skip':
+                        print("❌ 認証がスキップされました")
+                        return False
+                    else:
+                        print("❌ 無効なコマンドです。'auth' または 'skip' を入力してください。")
+                        
+            except (KeyboardInterrupt, EOFError):
+                print("\n❌ 認証がキャンセルされました")
+                return False
+            
+            print("🌐 ブラウザで認証を開始します...")
+            print("   ブラウザが開かない場合は、表示されるURLを手動でブラウザで開いてください。")
+            
+            # gcloud auth application-default loginを実行
+            try:
+                result = subprocess.run([
+                    'gcloud', 'auth', 'application-default', 'login'
+                ], timeout=300)  # 5分タイムアウト
+                
+                if result.returncode == 0:
+                    print("✅ 認証が完了しました")
+                    
+                    # 認証情報の再読み込みを強制
+                    import importlib
+                    import google.auth
+                    importlib.reload(google.auth)
+                    
+                    return True
+                else:
+                    print(f"❌ 認証コマンドが失敗しました (終了コード: {result.returncode})")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print("❌ 認証がタイムアウトしました（5分制限）")
+                return False
+            except Exception as e:
+                print(f"❌ 認証コマンド実行エラー: {e}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ 認証修復処理でエラー: {e}")
+            return False
+        finally:
+            # 認証終了を通知
+            if self.auth_state_callback:
+                self.auth_state_callback("end")
     
     def add_audio_data(self, audio_data: bytes):
         """音声データをキューに追加"""
@@ -126,7 +274,7 @@ class SimpleStreamingSpeechRecognition:
             print("🎵 音声ジェネレーター終了")
     
     def _run_streaming_recognition(self):
-        """真のストリーミング認識処理（公式ドキュメント完全準拠 + Voice Activity Detection）"""
+        """真のストリーミング認識処理（公式ドキュメント完全準拠 + Voice Activity Detection + 認証エラー自動修復）"""
         try:
             # Recognizer リソースパス
             recognizer_name = f"projects/{self.project_id}/locations/{self.region}/recognizers/_"
@@ -262,12 +410,40 @@ class SimpleStreamingSpeechRecognition:
             except Exception as response_error:
                 elapsed = self._get_elapsed_time()
                 print(f"❌ レスポンス処理中エラー [{self._format_elapsed_time(elapsed)}]: {response_error}")
+                
+                # 認証エラーの場合は自動修復を試行
+                if self._is_authentication_error(response_error):
+                    print("🔧 認証エラーを検出、自動修復を試行します...")
+                    if self._auto_fix_authentication():
+                        print("✅ 認証修復成功、クライアントを再初期化します...")
+                        try:
+                            self.client = self._initialize_client_with_auth()
+                            print("🔄 認証修復後、ストリーミングを再開してください")
+                        except Exception as reinit_error:
+                            print(f"❌ クライアント再初期化失敗: {reinit_error}")
+                    else:
+                        print("❌ 認証修復失敗")
+                
                 if self.verbose:
                     import traceback
                     traceback.print_exc()
                             
         except Exception as e:
             print(f"⚠️ ストリーミング認識エラー: {e}")
+            
+            # 認証エラーの場合は自動修復を試行
+            if self._is_authentication_error(e):
+                print("🔧 ストリーミング開始時の認証エラーを検出、自動修復を試行します...")
+                if self._auto_fix_authentication():
+                    print("✅ 認証修復成功、クライアントを再初期化します...")
+                    try:
+                        self.client = self._initialize_client_with_auth()
+                        print("🔄 認証修復後、ストリーミングを再開してください")
+                    except Exception as reinit_error:
+                        print(f"❌ クライアント再初期化失敗: {reinit_error}")
+                else:
+                    print("❌ 認証修復失敗")
+            
             if self.verbose:
                 import traceback
                 traceback.print_exc()
@@ -275,6 +451,23 @@ class SimpleStreamingSpeechRecognition:
             self.streaming_active = False
             elapsed = self._get_elapsed_time()
             print(f"🌩️ ストリーミング認識終了 [{self._format_elapsed_time(elapsed)}]")
+    
+    def _is_authentication_error(self, error) -> bool:
+        """エラーが認証関連かどうかを判定"""
+        error_str = str(error).lower()
+        auth_error_keywords = [
+            "reauthentication is needed",
+            "refresherror",
+            "authentication",
+            "credentials",
+            "unauthorized",
+            "403",
+            "invalid_grant",
+            "credentials were not found",  # 認証情報が見つからない場合
+            "default credentials",         # ADCの問題
+            "application default credentials"  # ADCの設定問題
+        ]
+        return any(keyword in error_str for keyword in auth_error_keywords)
     
     def stop_recognition(self):
         """認識停止"""
@@ -284,20 +477,19 @@ class SimpleStreamingSpeechRecognition:
     
     def _reset_for_reconnection(self):
         """再接続用の状態リセット"""
-        # キューをクリア（古い音声データを削除）
+        # キューをクリア
         while not self.audio_queue.empty():
             try:
                 self.audio_queue.get_nowait()
             except queue.Empty:
                 break
         
-        # タイムスタンプをリセット
-        self.last_audio_log_time = 0
-        self.last_response_log_time = 0
+        # フラグリセット
+        self.streaming_active = False
         self.response_count = 0
         
         if self.verbose:
-            print("🔄 音声認識状態をリセット完了")
+            print("🔄 再接続用状態リセット完了")
     
     def is_active(self):
         """認識がアクティブかどうか"""

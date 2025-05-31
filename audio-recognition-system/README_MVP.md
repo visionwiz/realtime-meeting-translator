@@ -1,9 +1,9 @@
-# MVP版 リアルタイム音声認識・翻訳・Google Docs出力システム
+# シンプル版 リアルタイム音声認識・翻訳・Google Docs出力システム
 
 ## 概要
-オンライン会議での個人発話を対象とした、音声認識→Claude翻訳→Google Docs出力の統合システムのMVP（Minimum Viable Product）版です。
+オンライン会議での個人発話を対象とした、音声認識→Claude翻訳→Google Docs出力の統合システムです。
 
-**MVP戦略**: まず動かす、後で最適化する
+**設計方針**: StreamingRecognize前提で設計された軽量実装、無音自動一時停止機能付き
 
 ## 🚀 クイックスタート（新規ユーザー向け）
 
@@ -22,11 +22,12 @@ python test_setup.py
 **詳細手順**: [QUICKSTART.md](QUICKSTART.md) | **完全ガイド**: [SETUP_GUIDE.md](SETUP_GUIDE.md)
 
 ## 機能
-- ✅ **音声認識**: MLX Whisper（macOS 3-10倍高速）/ OpenAI Whisper large-v3
+- ✅ **音声認識**: Google Cloud Speech V2（ストリーミング特化・高速）
 - ✅ **翻訳**: Claude 3.7 Sonnetによる自然な翻訳
 - ✅ **Google Docs出力**: リアルタイムでの会議記録自動生成
 - ✅ **多言語対応**: 日本語・英語・韓国語・中国語・スペイン語・フランス語・ドイツ語
 - ✅ **自動セットアップ**: ワンクリック環境構築
+- ✅ **無音自動一時停止**: 継続的ストリーミング機能
 
 ## システム要件
 - Python 3.8+
@@ -59,11 +60,12 @@ python test_setup.py
 ### 🎯 システム構成
 | ディレクトリ/ファイル | 説明 |
 |-------------------|------|
-| `main_mvp.py` | メインシステム（統合スクリプト） |
-| `config/mvp_config.py` | MVP設定管理クラス |
+| `main.py` | メインシステム（シンプル版統合スクリプト） |
+| `config/mvp_config.py` | 設定管理クラス |
 | `translation/claude_translator.py` | Claude 3.7 Sonnet翻訳エンジン |
 | `output/basic_google_docs_writer.py` | Google Docs出力エンジン |
-| `recognition/speech_recognition.py` | 高性能音声認識（MLX最適化） |
+| `recognition/simple_speech_recognition.py` | Google Cloud Speech V2ストリーミング認識 |
+| `audio/simple_capture.py` | シンプル音声キャプチャ |
 
 ## セットアップ
 
@@ -141,7 +143,7 @@ token.json
 ### 基本的な使用
 ```bash
 # 音声認識・翻訳・Google Docs出力
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
@@ -151,14 +153,14 @@ python main_mvp.py \
 ### 発話捕捉率テスト（推奨）
 ```bash
 # 音声認識のみ（最高速・リソース節約）
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
   --transcription-only
 
 # 翻訳無効化（Google Docs出力のみ有効）
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
@@ -166,7 +168,7 @@ python main_mvp.py \
   --disable-translation
 
 # Google Docs出力無効化（翻訳のみ有効）
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
@@ -179,7 +181,7 @@ python main_mvp.py \
 # 2. URLからドキュメントIDを取得（例: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms）
 # 3. 実行
 
-python main_mvp.py \
+python main.py \
   --source-lang ja \
   --target-lang en \
   --speaker-name "田中太郎" \
@@ -192,7 +194,7 @@ python main_mvp.py \
 python list_audio_devices.py
 
 # 特定デバイス使用（OpenComm by Shokz推奨）
-python main_mvp.py \
+python main.py \
   --input-device 0 \
   --source-lang en \
   --target-lang ja \
@@ -279,28 +281,29 @@ python main_mvp.py \
 
 ## パフォーマンス
 
-### MVP版の想定性能
-- **音声認識遅延**: 10-15秒
+### シンプル版の想定性能
+- **音声認識遅延**: 2-3秒（ストリーミング特化）
 - **翻訳遅延**: 3-5秒
 - **Google Docs出力**: 1-2秒
-- **総遅延**: 15-20秒（許容範囲）
+- **総遅延**: 6-10秒（高速化実現）
 
 ### リソース使用量
-- **メモリ**: 1-2GB（Whisperモデル含む）
-- **CPU**: 中程度（音声処理時に一時的に高負荷）
+- **メモリ**: 500MB-1GB（軽量実装）
+- **CPU**: 低程度（ストリーミング最適化）
 - **ネットワーク**: 翻訳・Google Docs API呼び出し時のみ
 
 ## 成功判定基準
-- ✅ 10分間の継続動作
+- ✅ 30分間の継続動作（無音自動一時停止機能）
 - ✅ 翻訳内容が実用レベル
 - ✅ Google Docsへの正常出力
 - ✅ システムクラッシュなし
+- ✅ Googleタイムアウト制限の自動回避
 
-## 理想版への移行予定
-MVP検証完了後、以下の機能を追加予定：
+## 今後の拡張予定
+システム検証完了後、以下の機能を追加予定：
 1. **音声認識最適化**: macOS特化モデル（15倍高速化）
 2. **翻訳品質向上**: 文脈バッファリング
-3. **パフォーマンス最適化**: 3-5秒遅延目標
+3. **パフォーマンス最適化**: 1-2秒遅延目標
 4. **運用機能強化**: 詳細監視・エラーハンドリング
 
 ## ライセンス
@@ -308,5 +311,5 @@ MIT License
 
 ## サポート
 - 問題報告: GitHubのIssues
-- ドキュメント: `mvp_implementation_prompt.md`参照
-- 開発戦略: `development_strategy.md`参照 
+- ドキュメント: README.md参照
+- 開発情報: main.pyのコメント参照 

@@ -42,9 +42,10 @@ class ClaudeTranslator:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model_name = model_name
         
-        # シンプルな設定（MVP版）
-        self.max_retries = 3
+        # シンプルな設定（MVP版）- 529エラー対応強化
+        self.max_retries = 5  # 529エラー対応のため増加
         self.retry_delay = 1.0
+        self.max_retry_delay = 8.0  # 最大待機時間
         
         logger.info(f"Claude翻訳器初期化完了: {model_name}")
     
@@ -117,6 +118,20 @@ class ClaudeTranslator:
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay * 2)  # レート制限時は長めに待機
                     continue
+            
+            except anthropic.APIStatusError as e:
+                # 529エラー（サーバー過負荷）の特別処理
+                if e.status_code == 529:
+                    wait_time = min(self.retry_delay * (2 ** attempt), self.max_retry_delay)
+                    logger.warning(f"サーバー過負荷エラー (試行 {attempt + 1}): {wait_time:.1f}秒待機")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    logger.error(f"API状態エラー (試行 {attempt + 1}): {e}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay)
+                        continue
                     
             except Exception as e:
                 logger.error(f"翻訳エラー (試行 {attempt + 1}): {e}")

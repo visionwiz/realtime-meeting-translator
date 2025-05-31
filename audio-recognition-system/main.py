@@ -33,6 +33,7 @@ class SystemState(Enum):
     ACTIVE = "active"           # 通常動作
     PAUSED = "paused"          # 一時停止
     WAITING_INPUT = "waiting"   # キーボード入力待機
+    AUTHENTICATING = "authenticating"  # 認証処理中
     SHUTTING_DOWN = "shutdown"  # 終了処理中
 
 class PauseReason(Enum):
@@ -96,11 +97,18 @@ class SimpleAudioRecognitionSystem:
                     self.last_speech_time = time.time()
             # 途中結果の表示も音声認識システム側に任せる
         
-        # シンプル音声認識システム
+        # Google Cloud Speech設定
+        project_id = os.getenv('GOOGLE_CLOUD_PROJECT') or 'meet-live-transcript'
+        region = 'global'
+        
+        # 音声認識初期化（認証状態コールバック付き）
         self.speech_recognition = SimpleStreamingSpeechRecognition(
             language_code=self._get_language_code(mvp_config.source_lang),
             result_callback=recognition_callback,
-            verbose=mvp_config.verbose
+            project_id=project_id,
+            region=region,
+            verbose=mvp_config.verbose,
+            auth_state_callback=self._auth_state_callback  # 認証状態変更通知
         )
         
         # シンプル音声キャプチャ（直接認識システムに送信）
@@ -198,8 +206,8 @@ class SimpleAudioRecognitionSystem:
                     if self.system_state == SystemState.SHUTTING_DOWN:
                         print("🛑 キーボード監視スレッド: システム終了により終了")
                         break
-                    elif self.system_state != SystemState.ACTIVE:
-                        # アクティブでない場合は1秒待機（一時停止中は専用の入力待機を使用）
+                    elif self.system_state in [SystemState.PAUSED, SystemState.WAITING_INPUT, SystemState.AUTHENTICATING]:
+                        # アクティブでない場合や認証中は1秒待機（一時停止中は専用の入力待機を使用）
                         time.sleep(1)
                         continue
                 
@@ -670,6 +678,19 @@ class SimpleAudioRecognitionSystem:
         
         print("✅ API接続テスト完了")
         return True
+
+    def _auth_state_callback(self, state: str):
+        """認証状態変更時のコールバック"""
+        if state == "start":
+            with self.state_lock:
+                print("🔒 認証処理開始 - キーボード監視を一時停止")
+                self.system_state = SystemState.AUTHENTICATING
+        elif state == "end":
+            with self.state_lock:
+                print("🔓 認証処理終了 - システム状態を復旧")
+                # 認証前の状態に戻す（通常はACTIVE）
+                if self.system_state == SystemState.AUTHENTICATING:
+                    self.system_state = SystemState.ACTIVE
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
