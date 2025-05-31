@@ -5,6 +5,20 @@ StreamingRecognize前提で設計された軽量実装
 無音自動一時停止機能付き
 """
 
+# urllib3のNotOpenSSLWarning警告を非表示にする
+import os
+os.environ['PYTHONWARNINGS'] = 'ignore:urllib3 v2 only supports OpenSSL'
+
+import warnings
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="urllib3")
+
+try:
+    import urllib3
+    urllib3.disable_warnings()
+except ImportError:
+    pass
+
 import sys
 import os
 import argparse
@@ -18,14 +32,14 @@ import uuid
 
 # シンプル実装
 from audio.simple_capture import SimpleAudioCapture
-from recognition.simple_speech_recognition import SimpleStreamingSpeechRecognition
+from recognition.speech_recognition import SimpleStreamingSpeechRecognition
 
 # 既存システムを再利用
 sys.path.append(os.path.join(os.path.dirname(__file__), 'config'))
 sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))  
 sys.path.append(os.path.join(os.path.dirname(__file__), 'output'))
 from mvp_config import MVPConfig, create_mvp_config_from_args
-from claude_translator import ClaudeTranslator, TranslationResult
+from translator import ClaudeTranslator, TranslationResult
 from basic_google_docs_writer import BasicGoogleDocsWriter, MeetingEntry
 
 class SystemState(Enum):

@@ -135,7 +135,7 @@ def check_files_and_directories() -> Dict[str, bool]:
     items = {
         'main_mvp.py': Path('main_mvp.py').exists(),
         'config/mvp_config.py': Path('config/mvp_config.py').exists(),
-        'translation/claude_translator.py': Path('translation/claude_translator.py').exists(),
+        'translation/translator.py': Path('translation/translator.py').exists(),
         'output/basic_google_docs_writer.py': Path('output/basic_google_docs_writer.py').exists(),
         'recognition/speech_recognition.py': Path('recognition/speech_recognition.py').exists(),
         '.env.example': Path('.env.example').exists(),
@@ -149,17 +149,17 @@ def check_mvp_modules() -> Tuple[bool, str]:
     """MVP版モジュールのインポート確認"""
     try:
         # パス追加
-        sys.path.append(os.path.join(os.path.dirname(__file__), 'config'))
         sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))
-        sys.path.append(os.path.join(os.path.dirname(__file__), 'output'))
         
-        from mvp_config import MVPConfig
-        from claude_translator import ClaudeTranslator
-        from basic_google_docs_writer import BasicGoogleDocsWriter
-        
+        from translator import ClaudeTranslator
+        print("✅ ClaudeTranslator import成功")
         return True, "全てのMVPモジュールが正常にインポートできます"
     except ImportError as e:
+        print(f"❌ ClaudeTranslator import失敗: {e}")
         return False, f"インポートエラー: {str(e)}"
+    except Exception as e:
+        print(f"❌ ClaudeTranslator テストエラー: {e}")
+        return False, f"テストエラー: {str(e)}"
 
 def check_api_configuration() -> Dict[str, Tuple[bool, str]]:
     """API設定の確認"""
@@ -203,7 +203,7 @@ def test_apis(verbose: bool = False) -> Dict[str, Tuple[bool, str]]:
     # Claude APIテスト
     try:
         sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))
-        from claude_translator import ClaudeTranslator
+        from translator import ClaudeTranslator
         from dotenv import load_dotenv
         
         load_dotenv()

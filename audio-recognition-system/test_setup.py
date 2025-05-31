@@ -134,7 +134,7 @@ class MVPSetupTester:
         
         mvp_modules = [
             ('mvp_config', 'MVP設定管理'),
-            ('claude_translator', 'Claude翻訳'),
+            ('translator', 'Claude翻訳'),
             ('basic_google_docs_writer', 'Google Docs出力'),
         ]
         
@@ -168,11 +168,12 @@ class MVPSetupTester:
     def test_file_structure(self) -> Tuple[bool, str, str]:
         """ファイル構造テスト"""
         required_files = [
-            'main_mvp.py',
+            'main.py',
             'config/mvp_config.py',
-            'translation/claude_translator.py',
+            'translation/translator.py',
             'output/basic_google_docs_writer.py',
-            '.env.example',
+            'recognition/speech_recognition.py',
+            'audio/simple_capture.py',
         ]
         
         missing_files = []
@@ -230,7 +231,7 @@ class MVPSetupTester:
         sys.path.append(os.path.join(os.path.dirname(__file__), 'translation'))
         
         try:
-            from claude_translator import ClaudeTranslator
+            from translator import ClaudeTranslator
             from dotenv import load_dotenv
             
             load_dotenv()

@@ -1,273 +1,267 @@
-import sys
-import os
-import datetime
-import threading
-import queue
+"""
+Claude 3.7 Sonnet翻訳モジュール（MVP版）
+シンプルな単発翻訳機能を提供
+
+MVP戦略: 複雑な文脈バッファリングは後回し、確実な基本翻訳を優先
+"""
+
+import anthropic
 import time
-import gc
-import torch
-from language_config import LanguageConfig
-from collections import deque
-from typing import Dict
+import logging
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
 
-if sys.platform == 'darwin':
-    from mlx_lm import load, generate
-else:
-    from transformers import AutoModelForCausalLM, AutoTokenizer, logging
+# ログ設定
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class Translation:
-    def __init__(self, translation_queue, args, lang_config):
-        self.translation_queue = translation_queue
-        self.args = args
-        self.lang_config = lang_config
-        self.prompt_template = self._setup_translation_prompt()
 
-        self.last_reload_time = time.time()
-        self.reload_interval = 7200  # 120分ごとにモデルを再ロード
-        if sys.platform == 'darwin':
-            self.reload_interval = 60  # 1分ごとにモデルを再ロード
-        self.consecutive_errors = 0
-        self.max_consecutive_errors = 1
-        self.error_cooldown = 2  # エラー後の待機時間（秒）
-        self.failed_translations = []  # エラーとなった原文を保存するリスト
-        self.llm_model = None
-        self.llm_tokenizer = None
-        self.batch_size = args.batch_size if hasattr(args, 'batch_size') else 5  # デフォルト値は5
+@dataclass
+class TranslationResult:
+    """翻訳結果を格納するデータクラス"""
+    original_text: str
+    translated_text: str
+    source_lang: str
+    target_lang: str
+    timestamp: float
+    success: bool
+    error_message: Optional[str] = None
 
-        # 文脈管理用の変数
-        self.context_window = deque(maxlen=8)  # 直近8つの文脈を保持
-        self.context_separator = "\n"  # 文脈間の区切り文字
 
-        # 生成パラメータの設定
-        self.generation_params = self._setup_generation_params()
+class ClaudeTranslator:
+    """Claude 3.7 Sonnet翻訳クラス（MVP版）"""
+    
+    def __init__(self, api_key: str, model_name: str = "claude-3-7-sonnet-20250219"):
+        """
+        Claude翻訳器の初期化
         
-        self.load_model()
-        self._setup_output_files()
-
-    def _setup_translation_prompt(self) -> str:
-        """翻訳方向に応じたプロンプトテンプレートを設定"""
-        source_name = LanguageConfig.get_language_name(self.lang_config.source_lang)
-        target_name = LanguageConfig.get_language_name(self.lang_config.target_lang)
+        Args:
+            api_key: Claude APIキー
+            model_name: 使用するClaudeモデル名（MVP版は固定）
+        """
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model_name = model_name
         
-        # 基本プロンプトテンプレート
-        return (f"以下の{source_name}を文脈を考慮して適切な{target_name}に翻訳してください。"
-                f"文脈を考慮しつつ、自然な{target_name}になるよう翻訳してください。"
-                f"翻訳のみを出力し、説明や注記などの出力は一切不要です。\n\n"
-                f"Previous context:\n"
-                f"{{context}}\n\n"
-                f"Current text to translate:\n"
-                f"{{text}}\n\n"
-                f"{target_name}訳:"
-        )
-
-    def _setup_generation_params(self) -> Dict:
-        """プラットフォームに応じた生成パラメータを設定"""
-        if sys.platform == 'darwin':
-            # mlx-lmの場合はパラメータを指定しない（デフォルト値を使用）
-            return {}
-        else:
-            return {
-                "do_sample": True,
-                "temperature": 0.8,
-                "top_p": 0.95,
-                "top_k": 40,
-                "max_new_tokens": 256,
-                "repetition_penalty": 1.1,
-            }
-
-    def _setup_output_files(self):
-        """出力ファイルの設定"""
-        os.makedirs(self.args.output_dir, exist_ok=True)
-        current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # シンプルな設定（MVP版）- 529エラー対応強化
+        self.max_retries = 5  # 529エラー対応のため増加
+        self.retry_delay = 1.0
+        self.max_retry_delay = 8.0  # 最大待機時間
         
-        # ファイル名に言語方向を含める
-        direction_suffix = f"{self.lang_config.source_lang}-{self.lang_config.target_lang}"
-        self.log_file_path = os.path.join(
-            self.args.output_dir,
-            f"translated_text_log_{direction_suffix}_{current_time}.txt"
-        )
-        self.bilingual_log_file_path = os.path.join(
-            self.args.output_dir,
-            f"bilingual_translation_log_{direction_suffix}_{current_time}.txt"
-        )
-
-    def load_model(self):
-        try:
-            if sys.platform == 'darwin':
-                del self.llm_model
-                del self.llm_tokenizer
-                if torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
-                gc.collect()
-                self.llm_model, self.llm_tokenizer = load(path_or_hf_repo=self.args.llm_model)
-            else:
-                del self.llm_model
-                del self.llm_tokenizer
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                gc.collect()
-                self.llm_tokenizer = AutoTokenizer.from_pretrained(
-                    self.args.llm_model,
-                    trust_remote_code=True
-                )
-                #logging.disable_progress_bar()
-                self.llm_model = AutoModelForCausalLM.from_pretrained(
-                    self.args.llm_model,
-                    torch_dtype="auto",
-                    device_map="auto",
-                    low_cpu_mem_usage=True,
-                    trust_remote_code=True,
-                )
-
-        except Exception as e:
-            print(f"モデルの再ロード中にエラーが発生しました: {e}")
-            raise
-
-    def translation_thread(self, is_running):
-        while is_running.is_set():
+        logger.info(f"Claude翻訳器初期化完了: {model_name}")
+    
+    def translate(self, text: str, source_lang: str, target_lang: str) -> TranslationResult:
+        """
+        テキストを翻訳
+        
+        Args:
+            text: 翻訳対象テキスト
+            source_lang: 発話言語（ja, en等）
+            target_lang: 翻訳先言語（ja, en等）
+            
+        Returns:
+            TranslationResult: 翻訳結果
+        """
+        if not text.strip():
+            return TranslationResult(
+                original_text=text,
+                translated_text="",
+                source_lang=source_lang,
+                target_lang=target_lang,
+                timestamp=time.time(),
+                success=True
+            )
+        
+        # 言語名の正規化
+        lang_names = self._get_language_names(source_lang, target_lang)
+        
+        # 翻訳プロンプト作成（MVP版: シンプル）
+        prompt = self._create_translation_prompt(text, lang_names['source'], lang_names['target'])
+        
+        # 翻訳実行（リトライ機能付き）
+        for attempt in range(self.max_retries):
             try:
-                # バッチ処理の準備
-                texts_to_translate = []
-            
-                # 失敗した翻訳の再処理を優先
-                while self.failed_translations and len(texts_to_translate) < self.batch_size:
-                    texts_to_translate.append(self.failed_translations.pop(0))
-                    if self.args.debug:
-                        print(f"\n再翻訳を試みます: {texts_to_translate[-1]}\n")
-
-                # キューから新しいテキストを追加
-                while len(texts_to_translate) < self.batch_size:
-                    try:
-                        text = self.translation_queue.get_nowait()
-                        texts_to_translate.append(text)
-                    except queue.Empty:
-                        if self.args.debug:
-                            print("翻訳キューが空です")
-                        break
+                logger.info(f"翻訳実行中... (試行 {attempt + 1}/{self.max_retries})")
                 
-                if not texts_to_translate:
-                    time.sleep(0.1)  # キューが空の場合、短い待機時間を設ける
+                response = self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=1000,
+                    temperature=0.1,  # 一貫性を重視
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                )
+                
+                translated_text = response.content[0].text.strip()
+                
+                logger.info(f"翻訳成功: '{text[:50]}...' -> '{translated_text[:50]}...'")
+                
+                return TranslationResult(
+                    original_text=text,
+                    translated_text=translated_text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    timestamp=time.time(),
+                    success=True
+                )
+                
+            except anthropic.APIConnectionError as e:
+                logger.warning(f"API接続エラー (試行 {attempt + 1}): {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
                     continue
-
-                translated_texts = []
-                bilingual_texts = []
-                for text in texts_to_translate:
-                    processed_text = self.preprocess_text(text)
-                    translated_text = self.translate_text(processed_text)
                 
-                    if self.is_valid_translation(translated_text):
-                        print(f"\n翻訳: {translated_text}\n")
-                        translated_texts.append(translated_text)
-                        bilingual_texts.append(
-                            f"原文 ({self.lang_config.source_lang}): {processed_text}\n"
-                            f"訳文 ({self.lang_config.target_lang}): {translated_text}\n"
-                        )
-                        self.context_window.append(processed_text)
-                        self.consecutive_errors = 0
-                    else:
-                        if self.args.debug:
-                            print(f"\n翻訳エラー: 有効な翻訳を生成できませんでした。原文: {text}\n")
-                        self.handle_translation_error(text)
-                
-                # 認識結果をファイルに追記
-                if translated_texts:
-                    with open(self.log_file_path, "a", encoding="utf-8") as log_file:
-                        log_file.write("\n".join(translated_texts) + "\n")
-
-                # バイリンガルログをファイルに追記
-                if bilingual_texts:
-                    with open(self.bilingual_log_file_path, "a", encoding="utf-8") as bilingual_log_file:
-                        bilingual_log_file.write("\n".join(bilingual_texts) + "\n")
-
-            except Exception as e:
-                print(f"\nエラー (翻訳スレッド): {e}", flush=True)
-                time.sleep(1)
+            except anthropic.RateLimitError as e:
+                logger.warning(f"レート制限エラー (試行 {attempt + 1}): {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay * 2)  # レート制限時は長めに待機
+                    continue
             
-            self.check_model_reload()
-
-    def translate_text(self, text):
-        # 文脈（原文のみ）を含むプロンプトを構築
-        context_str = ""
-        if self.context_window:
-            context_str = self.context_separator.join(self.context_window)
-
-        # プロンプトの構築
-        prompt = self.prompt_template.format(
-            context=context_str,
-            text=text
+            except anthropic.APIStatusError as e:
+                # 529エラー（サーバー過負荷）の特別処理
+                if e.status_code == 529:
+                    wait_time = min(self.retry_delay * (2 ** attempt), self.max_retry_delay)
+                    logger.warning(f"サーバー過負荷エラー (試行 {attempt + 1}): {wait_time:.1f}秒待機")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    logger.error(f"API状態エラー (試行 {attempt + 1}): {e}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay)
+                        continue
+                    
+            except Exception as e:
+                logger.error(f"翻訳エラー (試行 {attempt + 1}): {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+        
+        # 全ての試行が失敗した場合
+        error_message = f"翻訳に失敗しました（{self.max_retries}回試行）"
+        logger.error(error_message)
+        
+        return TranslationResult(
+            original_text=text,
+            translated_text=text,  # 失敗時は原文をそのまま返す
+            source_lang=source_lang,
+            target_lang=target_lang,
+            timestamp=time.time(),
+            success=False,
+            error_message=error_message
         )
+    
+    def _create_translation_prompt(self, text: str, source_lang: str, target_lang: str) -> str:
+        """
+        翻訳プロンプトを作成（MVP版: シンプル）
+        
+        Args:
+            text: 翻訳対象テキスト
+            source_lang: 発話言語名
+            target_lang: 翻訳先言語名
+            
+        Returns:
+            str: 翻訳プロンプト
+        """
+        return f"""以下の{source_lang}のテキストを{target_lang}に翻訳してください。
 
-        # チャットテンプレートの適用
-        if hasattr(self.llm_tokenizer, "apply_chat_template") and self.llm_tokenizer.chat_template is not None:
-            messages = [{"role": "user", "content": prompt}]
-            prompt = self.llm_tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-        if sys.platform == 'darwin':
-            # パラメータがある場合のみ渡す
-            generation_params = self.generation_params if self.generation_params else {}
-            response = generate(
-                self.llm_model,
-                self.llm_tokenizer,
-                prompt=prompt,
-                **generation_params
-            )
-            output_ids = self.llm_tokenizer.encode(
-                response,
-                add_special_tokens=True,
-                return_tensors='pt'
-            )
-            response = self.llm_tokenizer.decode(
-                output_ids[0],
-                skip_special_tokens=True
-            )
-        else:
-            input_ids = self.llm_tokenizer.encode(
-                prompt,
-                add_special_tokens=True,
-                return_tensors='pt'
-            )
-            output_ids = self.llm_model.generate(
-                input_ids.to(self.llm_model.device),
-                pad_token_id=self.llm_tokenizer.pad_token_id,
-                **self.generation_params
-            )
-            response = self.llm_tokenizer.decode(
-                output_ids[0][input_ids.size(1) :],
-                skip_special_tokens=True
-            )
+翻訳の際は以下の点に注意してください：
+- 自然で読みやすい翻訳を心がける
+- 会議での発話として適切な表現を使用
+- 専門用語は文脈に応じて適切に翻訳
+- 翻訳結果のみを出力（説明や注釈は不要）
 
-        return response.strip()
+翻訳対象テキスト:
+{text}
 
-    @staticmethod
-    def is_valid_translation(text):
-        return bool(text) and len(set(text)) > 1 and not text.startswith('!!!') and not text.endswith('!!!')
+翻訳結果:"""
+    
+    def _get_language_names(self, source_lang: str, target_lang: str) -> Dict[str, str]:
+        """
+        言語コードを言語名に変換
+        
+        Args:
+            source_lang: 発話言語コード
+            target_lang: 翻訳先言語コード
+            
+        Returns:
+            Dict[str, str]: 言語名の辞書
+        """
+        lang_map = {
+            'ja': '日本語',
+            'en': '英語',
+            'ko': '韓国語',
+            'zh': '中国語',
+            'es': 'スペイン語',
+            'fr': 'フランス語',
+            'de': 'ドイツ語'
+        }
+        
+        return {
+            'source': lang_map.get(source_lang, source_lang),
+            'target': lang_map.get(target_lang, target_lang)
+        }
+    
+    def test_connection(self) -> bool:
+        """
+        Claude API接続テスト
+        
+        Returns:
+            bool: 接続成功の場合True
+        """
+        try:
+            logger.info("Claude API接続テスト実行中...")
+            
+            test_result = self.translate("Hello", "en", "ja")
+            
+            if test_result.success:
+                logger.info("Claude API接続テスト成功")
+                return True
+            else:
+                logger.error("Claude API接続テスト失敗")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Claude API接続テストでエラー: {e}")
+            return False
 
-    def handle_translation_error(self, text):
-        self.consecutive_errors += 1
-        self.failed_translations.append(text)
-        if self.consecutive_errors >= self.max_consecutive_errors:
-            if self.args.debug:
-                print("連続エラーが発生しました。モデルを再ロードします。")
-            self.load_model()
-            self.consecutive_errors = 0
-        time.sleep(self.error_cooldown)
 
-    def check_model_reload(self):
-        current_time = time.time()
-        if current_time - self.last_reload_time > self.reload_interval:
-            if self.args.debug:
-                print("定期的なモデル再ロードを実行します。")
-            self.load_model()
-            self.last_reload_time = current_time
+# MVP版テスト用の簡易関数
+def test_claude_translator(api_key: str):
+    """Claude翻訳器のテスト関数"""
+    translator = ClaudeTranslator(api_key)
+    
+    # 接続テスト
+    if not translator.test_connection():
+        print("❌ Claude API接続に失敗しました")
+        return
+    
+    # 基本翻訳テスト
+    test_cases = [
+        ("こんにちは、今日の会議を始めましょう。", "ja", "en"),
+        ("Thank you for organizing this meeting.", "en", "ja"),
+        ("", "ja", "en"),  # 空文字テスト
+    ]
+    
+    print("\n=== 翻訳テスト開始 ===")
+    for text, source, target in test_cases:
+        result = translator.translate(text, source, target)
+        status = "✅" if result.success else "❌"
+        print(f"{status} {source}→{target}: '{text}' -> '{result.translated_text}'")
+    
+    print("=== 翻訳テスト完了 ===")
 
-    @staticmethod
-    def preprocess_text(text):
-        #text = text.replace("...", " ")
-        #text = text.replace("&", "and")
-        #
-        #if not text.endswith(('.', '!', '?')):
-        #    text += '.'
-        #
-        return text.strip()
 
+if __name__ == "__main__":
+    import os
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    api_key = os.getenv("CLAUDE_API_KEY")
+    
+    if api_key:
+        test_claude_translator(api_key)
+    else:
+        print("❌ CLAUDE_API_KEY環境変数が設定されていません") 
