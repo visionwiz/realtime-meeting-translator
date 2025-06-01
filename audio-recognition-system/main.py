@@ -86,31 +86,63 @@ class SimpleAudioRecognitionSystem:
         # 音声認識結果を処理するキュー（1つだけ！）
         self.result_queue = queue.Queue()
         
-        # プレースホルダー管理
+        # プレースホルダー管理（スレッドセーフ）
         self.active_placeholders = {}  # {placeholder_id: timestamp}
         self.current_placeholder_id = None  # 現在の音声認識セッション用のプレースホルダーID
+        self.placeholder_lock = threading.Lock()  # プレースホルダー操作の同期化
+        self.last_placeholder_time = 0  # 最後のプレースホルダー挿入時刻
+        self.placeholder_cooldown = 2.0  # プレースホルダー挿入のクールダウン時間（秒）
+        
+        # Google Docs負荷軽減モード（デバッグ時や高頻度使用時）
+        self.simple_mode = mvp_config.debug or mvp_config.verbose  # デバッグモード時はシンプルモード
+        if self.simple_mode:
+            print("🐛 デバッグモード: Google Docsシンプル書き込みモード（プレースホルダー無効）")
         
         # 音声認識結果のコールバック関数（表示は音声認識システム側に任せる）
         def recognition_callback(transcript, confidence, is_final):
             if transcript.strip():
                 if not is_final:
-                    # 途中結果でプレースホルダーを挿入（最初の途中結果のみ）
-                    if self.current_placeholder_id is None:
-                        placeholder_id = str(uuid.uuid4())[:8]  # 短縮ID
-                        placeholder_timestamp = time.time()  # プレースホルダー挿入時のタイムスタンプを保存
-                        if self.docs_writer and not self.mvp_config.disable_docs_output:
-                            self.docs_writer.insert_placeholder(self.mvp_config.speaker_name, placeholder_id)
-                            # タイムスタンプも保存
-                            self.active_placeholders[placeholder_id] = placeholder_timestamp
-                            self.current_placeholder_id = placeholder_id
-                            # print(f"📝 Placeholder inserted / プレースホルダー挿入: {placeholder_id}")
+                    # 途中結果でプレースホルダーを挿入（シンプルモードでは無効）
+                    if not self.simple_mode:
+                        with self.placeholder_lock:
+                            current_time = time.time()
+                            if (self.current_placeholder_id is None and 
+                                current_time - self.last_placeholder_time > self.placeholder_cooldown):
+                                
+                                placeholder_id = str(uuid.uuid4())[:8]  # 短縮ID
+                                placeholder_timestamp = time.time()  # プレースホルダー挿入時のタイムスタンプを保存
+                                
+                                if self.docs_writer and not self.mvp_config.disable_docs_output:
+                                    try:
+                                        insert_result = self.docs_writer.insert_placeholder(self.mvp_config.speaker_name, placeholder_id)
+                                        if insert_result is not None:
+                                            # タイムスタンプも保存
+                                            self.active_placeholders[placeholder_id] = placeholder_timestamp
+                                            self.current_placeholder_id = placeholder_id
+                                            self.last_placeholder_time = current_time
+                                            # print(f"📝 Placeholder inserted / プレースホルダー挿入: {placeholder_id}")
+                                        else:
+                                            print(f"⚠️ プレースホルダー挿入失敗: {placeholder_id}")
+                                    except Exception as e:
+                                        print(f"❌ プレースホルダー挿入エラー: {e}")
+                                else:
+                                    # Google Docs出力が無効な場合は仮想プレースホルダーを作成
+                                    self.active_placeholders[placeholder_id] = placeholder_timestamp
+                                    self.current_placeholder_id = placeholder_id
+                                    self.last_placeholder_time = current_time
                 else:
                     # 最終結果を翻訳処理用キューに追加
-                    self.result_queue.put((transcript, self.current_placeholder_id))
-                    # print(f"🎯 最終結果とプレースホルダーID: {self.current_placeholder_id}")
-                    
-                    # 現在のプレースホルダーIDをリセット（次の音声認識用）
-                    self.current_placeholder_id = None
+                    if self.simple_mode:
+                        # シンプルモード: プレースホルダーなしで直接処理
+                        self.result_queue.put((transcript, None))
+                    else:
+                        with self.placeholder_lock:
+                            current_id = self.current_placeholder_id
+                            # 現在のプレースホルダーIDをリセット（次の音声認識用）
+                            self.current_placeholder_id = None
+                        
+                        self.result_queue.put((transcript, current_id))
+                    # print(f"🎯 最終結果とプレースホルダーID: {current_id}")
                     
                     # 音声が検出されたので無音タイマーをリセット
                     self.last_speech_time = time.time()
@@ -491,23 +523,36 @@ class SimpleAudioRecognitionSystem:
                                 target_lang=self.mvp_config.target_lang
                             )
                             
-                            # プレースホルダーがあれば更新、なければ通常の書き込み
-                            if placeholder_id and placeholder_id in self.active_placeholders:
-                                if self.docs_writer.update_placeholder(placeholder_id, meeting_entry):
-                                    # print(f"📄 Placeholder updated / プレースホルダー更新完了: {placeholder_id}")
-                                    # 使用済みプレースホルダーを削除
-                                    del self.active_placeholders[placeholder_id]
-                                else:
-                                    print(f"❌ Placeholder update failed / プレースホルダー更新失敗: {placeholder_id}")
-                                    # 失敗時は通常の書き込みにフォールバック
-                                    if self.docs_writer.write_meeting_entry(meeting_entry):
-                                        print("📄 Fallback write completed / フォールバック書き込み完了")
-                            else:
-                                # プレースホルダーがない場合は通常の書き込み
+                            if self.simple_mode:
+                                # シンプルモード: プレースホルダーなしで直接書き込み
                                 if self.docs_writer.write_meeting_entry(meeting_entry):
-                                    print("📄 Google Docs output completed / Google Docsに出力完了")
+                                    print("📄 Google Docs output completed (simple mode) / Google Docsに出力完了（シンプルモード）")
                                 else:
-                                    print("❌ Google Docs output failed / Google Docs出力失敗")
+                                    print("❌ Google Docs output failed (simple mode) / Google Docs出力失敗（シンプルモード）")
+                            else:
+                                # 通常モード: プレースホルダーがあれば更新、なければ通常の書き込み
+                                if placeholder_id and placeholder_id in self.active_placeholders:
+                                    if self.docs_writer.update_placeholder(placeholder_id, meeting_entry):
+                                        # print(f"📄 Placeholder updated / プレースホルダー更新完了: {placeholder_id}")
+                                        # 使用済みプレースホルダーを削除
+                                        with self.placeholder_lock:
+                                            if placeholder_id in self.active_placeholders:
+                                                del self.active_placeholders[placeholder_id]
+                                    else:
+                                        print(f"❌ Placeholder update failed / プレースホルダー更新失敗: {placeholder_id}")
+                                        # 失敗時は通常の書き込みにフォールバック
+                                        if self.docs_writer.write_meeting_entry(meeting_entry):
+                                            print("📄 Fallback write completed / フォールバック書き込み完了")
+                                            # 失敗したプレースホルダーも削除
+                                            with self.placeholder_lock:
+                                                if placeholder_id in self.active_placeholders:
+                                                    del self.active_placeholders[placeholder_id]
+                                else:
+                                    # プレースホルダーがない場合は通常の書き込み
+                                    if self.docs_writer.write_meeting_entry(meeting_entry):
+                                        print("📄 Google Docs output completed / Google Docsに出力完了")
+                                    else:
+                                        print("❌ Google Docs output failed / Google Docs出力失敗")
                         
                         # コンソール出力（プレースホルダーのタイムスタンプを使用）
                         self._print_result_with_timestamp(translation_result, entry_timestamp)
@@ -711,6 +756,56 @@ class SimpleAudioRecognitionSystem:
     def _on_audio_file_completed(self):
         """音声ファイル再生完了時のコールバック"""
         print("🎵 録音ファイル再生完了")
+        
+        # 未処理のタスクを完了させるため、少し待機
+        print("⏳ 未処理のタスク完了を待機中...")
+        
+        # 結果処理キューが空になるまで待機（最大15秒）
+        max_wait_time = 15.0
+        wait_start = time.time()
+        
+        while time.time() - wait_start < max_wait_time:
+            # キューが空かチェック
+            if self.result_queue.empty():
+                # 空になったら追加で5秒待機（翻訳・出力処理の完了を確保）
+                print("📋 キューが空になりました。翻訳・出力処理の完了を待機中...")
+                completion_wait_start = time.time()
+                
+                # 5秒間待機しながら、新しいタスクが追加されていないかチェック
+                while time.time() - completion_wait_start < 5.0:
+                    if not self.result_queue.empty():
+                        print("📝 新しいタスクが検出されました。処理を継続...")
+                        break
+                    time.sleep(0.2)
+                else:
+                    # 5秒間新しいタスクが追加されなかった場合、完了とみなす
+                    print("✅ 全てのタスクが完了しました")
+                    break
+            
+            time.sleep(0.5)  # 0.5秒間隔でチェック
+        
+        if not self.result_queue.empty():
+            remaining_tasks = self.result_queue.qsize()
+            print(f"⚠️ 未完了のタスクが残っています: {remaining_tasks}件")
+            print("📋 残りのタスクを強制完了させます...")
+            
+            # 残りタスクを最大8秒で強制処理
+            force_wait_start = time.time()
+            while (not self.result_queue.empty() and 
+                   time.time() - force_wait_start < 8.0):
+                time.sleep(0.2)
+                
+            # 強制完了後、さらに2秒待機（Google Docs書き込み完了のため）
+            if self.docs_writer and not self.mvp_config.disable_docs_output:
+                print("📄 Google Docs書き込み完了の最終確認...")
+                time.sleep(2.0)
+        
+        # 最終確認: Google Docs書き込み完了のため追加待機
+        if self.docs_writer and not self.mvp_config.disable_docs_output:
+            print("📄 Google Docs書き込み処理の最終完了確認中...")
+            time.sleep(1.5)  # 最終的な書き込み完了を確保
+        
+        print("🏁 全ての処理が完了しました")
         self._shutdown_system()
 
 
