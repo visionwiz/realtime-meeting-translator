@@ -256,7 +256,7 @@ class SimpleStreamingSpeechRecognition:
                     break
                 
                 # ブロッキング取得でリアルタイム性を確保
-                audio_data = self.audio_queue.get(timeout=1.0)
+                audio_data = self.audio_queue.get(timeout=0)  # ノンブロッキング（最大即応性）
                 if audio_data is None:  # 終了シグナル
                     elapsed = self._get_elapsed_time()
                     # print(f"🛑 音声ジェネレーター終了シグナル受信 [{self._format_elapsed_time(elapsed)}]")

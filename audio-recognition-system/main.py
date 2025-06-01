@@ -9,6 +9,10 @@ StreamingRecognize前提で設計された軽量実装
 import os
 os.environ['PYTHONWARNINGS'] = 'ignore:urllib3 v2 only supports OpenSSL'
 
+# gRPCとabslのログレベルを制御
+os.environ['GRPC_VERBOSITY'] = 'ERROR'  # gRPCの詳細ログを抑制
+os.environ['GLOG_minloglevel'] = '2'    # Google/abslのログレベルをERRORに設定
+
 import warnings
 warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="urllib3")
@@ -409,7 +413,7 @@ class SimpleAudioRecognitionSystem:
             try:
                 # 認識結果を取得
                 if not self.result_queue.empty():
-                    result_data = self.result_queue.get(timeout=1.0)
+                    result_data = self.result_queue.get(timeout=0.1)  # 0.1秒待機
                     
                     # 新しいタプル形式（transcript, placeholder_id）または従来の文字列形式に対応
                     if isinstance(result_data, tuple):
