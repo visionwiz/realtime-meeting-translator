@@ -28,6 +28,7 @@ python test_setup.py
 - ✅ **多言語対応**: 日本語・英語・韓国語・中国語・スペイン語・フランス語・ドイツ語
 - ✅ **自動セットアップ**: ワンクリック環境構築
 - ✅ **無音自動一時停止**: 継続的ストリーミング機能
+- ✅ **録音データテスト**: 音声ファイルでのシステム評価機能
 
 ## システム要件
 - Python 3.8+
@@ -66,6 +67,45 @@ python test_setup.py
 | `output/basic_google_docs_writer.py` | Google Docs出力エンジン |
 | `recognition/simple_speech_recognition.py` | Google Cloud Speech V2ストリーミング認識 |
 | `audio/simple_capture.py` | シンプル音声キャプチャ |
+| `audio/file_audio_capture.py` | 録音ファイル対応音声キャプチャ |
+| `evaluate_transcription.py` | 音声認識精度評価ツール |
+| `test_data/` | 録音データテスト用ファイル（音声・正解データ） |
+
+## 🎵 録音データテスト機能
+
+録音済み音声ファイルを使用してシステムの音声認識精度や安定性を評価できます。
+
+### 📁 テストデータ構成
+```
+test_data/
+├── audio/リアルタイムミーティング翻訳検証音声データ.mp3  # 約70秒の日本語音声
+└── reference/リアルタイムミーティング翻訳検証音声データ_正解データ.txt  # 正解文字起こし
+```
+
+### 🚀 クイックテスト
+```bash
+# 最速テスト（25秒で完了）
+python main.py \
+  --audio-file "test_data/audio/リアルタイムミーティング翻訳検証音声データ.mp3" \
+  --source-lang ja \
+  --target-lang en \
+  --speaker-name "テストユーザー" \
+  --transcription-only \
+  --playback-speed 3.0
+
+# 精度評価（自動WER計算）
+python evaluate_transcription.py \
+  "test_data/reference/リアルタイムミーティング翻訳検証音声データ_正解データ.txt" \
+  "logs/simple_transcription_ja_YYYYMMDD_HHMMSS.txt" \
+  --verbose
+```
+
+### 📊 対応フォーマット・オプション
+- **音声形式**: MP3 ✅ WAV ✅ FLAC ✅ M4A ✅ OGG ✅
+- **再生速度**: `--playback-speed 1.0`（リアルタイム）〜 `3.0`（3倍速）
+- **評価指標**: WER (Word Error Rate)、認識精度、完了率
+
+詳細は [`test_data/README.md`](test_data/README.md) を参照してください。
 
 ## セットアップ
 
@@ -214,6 +254,8 @@ python main.py \
 - `--model`: 音声認識モデル (tiny, base, small, medium, large-v2, large-v3)
 - `--google-docs-id`: Google DocsドキュメントID
 - `--output-dir`: ログ出力ディレクトリ
+- `--audio-file`: 録音済み音声ファイルのパス（録音データテスト用）
+- `--playback-speed`: 録音ファイル再生速度倍率（デフォルト: 1.0）
 
 ### 機能無効化オプション
 - `--disable-translation`: 翻訳機能を無効化（音声認識のみ実行）

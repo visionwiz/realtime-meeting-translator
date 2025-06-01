@@ -29,8 +29,8 @@ def main():
     # 基本設定
     parser.add_argument(
         '--audio-file', 
-        default='sample_audio.wav',
-        help='テスト用音声ファイルパス（デフォルト: sample_audio.wav）'
+        default='test_data/audio/リアルタイムミーティング翻訳検証音声データ.mp3',
+        help='テスト用音声ファイルパス（デフォルト: test_data/audio/リアルタイムミーティング翻訳検証音声データ.mp3）'
     )
     parser.add_argument(
         '--source-lang', 
