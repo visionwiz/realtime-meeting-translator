@@ -42,6 +42,7 @@ class MVPConfig:
     
     # Google Docs設定
     google_docs_id: Optional[str] = None
+    google_docs_tab_id: Optional[str] = None  # タブID指定（オプション）
     google_credentials_path: str = "credentials.json"
     google_token_path: str = "token.json"
     
@@ -82,6 +83,10 @@ class MVPConfig:
         env_docs_id = os.getenv("GOOGLE_DOCS_ID")
         if env_docs_id:
             self.google_docs_id = env_docs_id
+            
+        env_docs_tab_id = os.getenv("GOOGLE_DOCS_TAB_ID")
+        if env_docs_tab_id:
+            self.google_docs_tab_id = env_docs_tab_id
             
         env_credentials = os.getenv("GOOGLE_DOCS_CREDENTIALS_PATH")
         if env_credentials:
@@ -212,6 +217,7 @@ def create_mvp_config_from_args(args) -> MVPConfig:
         speaker_name=getattr(args, 'speaker_name', 'Anonymous'),  # オプション引数として処理
         speech_model=getattr(args, 'model', 'large-v3'),
         google_docs_id=getattr(args, 'google_docs_id', None),
+        google_docs_tab_id=getattr(args, 'google_docs_tab_id', None),
         output_dir=getattr(args, 'output_dir', None),
         disable_translation=disable_translation,
         disable_docs_output=disable_docs_output,

@@ -163,6 +163,14 @@ class SimpleAudioRecognitionSystem:
                     mvp_config.google_token_path
                 )
                 self.docs_writer.set_document_id(mvp_config.google_docs_id)
+                
+                # タブIDが指定されている場合は設定
+                if mvp_config.google_docs_tab_id:
+                    self.docs_writer.set_tab_id(mvp_config.google_docs_tab_id)
+                    print(f"📄 Google Docs出力先: ドキュメント {mvp_config.google_docs_id}, タブ {mvp_config.google_docs_tab_id}")
+                else:
+                    print(f"📄 Google Docs出力先: ドキュメント {mvp_config.google_docs_id} (デフォルトタブ)")
+                
                 # print(f"✅ Google Docs出力を有効化")
             except Exception as e:
                 print(f"⚠️ Google Docs初期化エラー: {e}")
@@ -763,6 +771,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--google-docs-id', 
         help='Google DocsドキュメントID'
+    )
+    parser.add_argument(
+        '--google-docs-tab-id', 
+        help='Google DocsタブID（オプション）'
     )
     parser.add_argument(
         '--output-dir', 

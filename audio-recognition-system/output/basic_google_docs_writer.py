@@ -66,6 +66,7 @@ class BasicGoogleDocsWriter:
         self.token_path = token_path
         self.service = None
         self.document_id = None
+        self.tab_id = None  # タブID（オプション）
         
         # レート制限制御
         self.last_request_time = 0
@@ -169,6 +170,16 @@ class BasicGoogleDocsWriter:
         self.document_id = document_id
         logger.info(f"Google DocsドキュメントID設定: {document_id}")
     
+    def set_tab_id(self, tab_id: str):
+        """
+        対象のGoogle DocsタブIDを設定
+        
+        Args:
+            tab_id: Google Docsのタブ内のタブID
+        """
+        self.tab_id = tab_id
+        logger.info(f"Google DocsタブID設定: {tab_id}")
+    
     def verify_document_access(self) -> bool:
         """
         ドキュメントアクセス可能性の確認（テスト結果を踏まえた追加機能）
@@ -186,9 +197,26 @@ class BasicGoogleDocsWriter:
         
         try:
             # ドキュメントの基本情報を取得してアクセス確認
-            doc = self.service.documents().get(documentId=self.document_id).execute()
+            # タブが設定されている場合はタブ内容も含める
+            if self.tab_id:
+                doc = self.service.documents().get(
+                    documentId=self.document_id,
+                    includeTabsContent=True
+                ).execute()
+            else:
+                doc = self.service.documents().get(documentId=self.document_id).execute()
+            
             title = doc.get('title', 'タイトルなし')
             logger.info(f"✅ ドキュメントアクセス確認成功: {title}")
+            
+            # タブIDが指定されている場合、タブの存在確認
+            if self.tab_id:
+                if not self._verify_tab_exists(doc):
+                    logger.error(f"❌ 指定されたタブが見つかりません: {self.tab_id}")
+                    return False
+                else:
+                    logger.info(f"✅ タブアクセス確認成功: {self.tab_id}")
+            
             return True
             
         except HttpError as e:
@@ -202,6 +230,35 @@ class BasicGoogleDocsWriter:
         except Exception as e:
             logger.error(f"❌ ドキュメントアクセス予期しないエラー: {e}")
             return False
+
+    def _verify_tab_exists(self, doc: dict) -> bool:
+        """
+        指定されたタブIDがドキュメント内に存在するかを確認
+        
+        Args:
+            doc: Google Docsドキュメントのレスポンス
+            
+        Returns:
+            bool: タブが存在する場合True
+        """
+        if not self.tab_id:
+            return True  # タブIDが指定されていない場合は常にTrue
+        
+        tabs = doc.get('tabs', [])
+        
+        def check_tab_recursive(tabs_list):
+            """再帰的にタブとその子タブをチェック"""
+            for tab in tabs_list:
+                tab_properties = tab.get('tabProperties', {})
+                if tab_properties.get('tabId') == self.tab_id:
+                    return True
+                # 子タブもチェック
+                child_tabs = tab.get('childTabs', [])
+                if child_tabs and check_tab_recursive(child_tabs):
+                    return True
+            return False
+        
+        return check_tab_recursive(tabs)
     
     def test_connection(self) -> bool:
         """
@@ -603,25 +660,44 @@ class BasicGoogleDocsWriter:
                 entry_text = self._format_entry(entry)
                 
                 # まずドキュメントの現在の長さを取得
-                doc = self.service.documents().get(documentId=self.document_id).execute()
+                # タブが指定されている場合はタブ内容も取得
+                if self.tab_id:
+                    doc = self.service.documents().get(
+                        documentId=self.document_id,
+                        includeTabsContent=True
+                    ).execute()
+                else:
+                    doc = self.service.documents().get(documentId=self.document_id).execute()
+                
                 if not doc:
                     raise ValueError("ドキュメントの取得に失敗しました")
-                    
-                content = doc.get('body', {}).get('content', [])
                 
                 # ドキュメントの末尾位置を計算
                 end_index = 1
-                for element in content:
-                    if 'endIndex' in element:
-                        end_index = max(end_index, element['endIndex'])
                 
-                # 正しい位置に挿入（テスト結果を踏まえた改善）
+                if self.tab_id:
+                    # タブモード: 指定されたタブの末尾を計算
+                    tab_end_index = self._get_tab_end_index(doc, self.tab_id)
+                    if tab_end_index is not None:
+                        end_index = tab_end_index
+                    else:
+                        raise ValueError(f"タブ '{self.tab_id}' が見つかりません")
+                else:
+                    # 従来モード: ドキュメント全体の末尾を計算
+                    content = doc.get('body', {}).get('content', [])
+                    for element in content:
+                        if 'endIndex' in element:
+                            end_index = max(end_index, element['endIndex'])
+                
+                # 正しい位置に挿入
+                location = {'index': end_index - 1}
+                if self.tab_id:
+                    location['tabId'] = self.tab_id
+                
                 requests = [
                     {
                         'insertText': {
-                            'location': {
-                                'index': end_index - 1  # 末尾の前に挿入
-                            },
+                            'location': location,
                             'text': entry_text
                         }
                     }
@@ -702,46 +778,113 @@ Translation Direction / 翻訳方向: {source_lang} → {target_lang}
 """
         
         try:
-            # ドキュメントの末尾に追加
-            doc = self.service.documents().get(documentId=self.document_id).execute()
-            content = doc.get('body', {}).get('content', [])
-            
-            end_index = 1
-            for element in content:
-                if 'endIndex' in element:
-                    end_index = max(end_index, element['endIndex'])
-            
-            requests = [
-                {
+            def _write_header_operation():
+                # タブが指定されている場合はタブ内容も取得
+                if self.tab_id:
+                    doc = self.service.documents().get(
+                        documentId=self.document_id,
+                        includeTabsContent=True
+                    ).execute()
+                else:
+                    doc = self.service.documents().get(documentId=self.document_id).execute()
+                
+                if not doc:
+                    raise ValueError("ドキュメントの取得に失敗しました")
+                
+                # ドキュメントの末尾位置を計算
+                end_index = 1
+                
+                if self.tab_id:
+                    # タブモード: 指定されたタブの末尾を計算
+                    tab_end_index = self._get_tab_end_index(doc, self.tab_id)
+                    if tab_end_index is not None:
+                        end_index = tab_end_index
+                    else:
+                        raise ValueError(f"タブ '{self.tab_id}' が見つかりません")
+                else:
+                    # 従来モード: ドキュメント全体の末尾を計算
+                    content = doc.get('body', {}).get('content', [])
+                    for element in content:
+                        if 'endIndex' in element:
+                            end_index = max(end_index, element['endIndex'])
+                
+                # 正しい位置に挿入
+                location = {'index': end_index - 1}
+                if self.tab_id:
+                    location['tabId'] = self.tab_id
+                
+                requests = [{
                     'insertText': {
-                        'location': {
-                            'index': end_index - 1
-                        },
+                        'location': location,
                         'text': header_text
                     }
-                }
-            ]
+                }]
+                
+                # Google Docs APIで実行
+                self.service.documents().batchUpdate(
+                    documentId=self.document_id,
+                    body={'requests': requests}
+                ).execute()
+                
+                return True
             
-            self.service.documents().batchUpdate(
-                documentId=self.document_id,
-                body={'requests': requests}
-            ).execute()
+            # リトライ付きで実行
+            result = self._execute_with_retry(
+                _write_header_operation,
+                "セッションヘッダー書き込み"
+            )
             
-            logger.info("セッションヘッダーをGoogle Docsに書き込み完了")
-            return True
+            if result:
+                logger.info("✅ セッションヘッダー書き込み成功")
+                if self.tab_id:
+                    logger.info(f"📄 タブ '{self.tab_id}' にヘッダーを出力しました")
             
-        except HttpError as e:
-            # テスト結果を踏まえた詳細なエラーハンドリング
-            if e.resp.status == 403:
-                logger.error(f"セッションヘッダー権限エラー: ドキュメントへのアクセス権限がありません - {e}")
-            elif e.resp.status == 404:
-                logger.error(f"セッションヘッダードキュメント未発見エラー: ドキュメントID {self.document_id} が見つかりません - {e}")
-            else:
-                logger.error(f"セッションヘッダー書き込みエラー: {e}")
-            return False
+            return result is not None
+            
         except Exception as e:
-            logger.error(f"セッションヘッダー予期しないエラー: {e}")
+            logger.error(f"❌ セッションヘッダー書き込みエラー: {e}")
             return False
+
+    def _get_tab_end_index(self, doc: dict, target_tab_id: str) -> Optional[int]:
+        """
+        指定されたタブの末尾インデックスを取得
+        
+        Args:
+            doc: Google Docsドキュメントのレスポンス
+            target_tab_id: 対象のタブID
+            
+        Returns:
+            Optional[int]: タブの末尾インデックス、見つからない場合はNone
+        """
+        tabs = doc.get('tabs', [])
+        
+        def find_tab_recursive(tabs_list):
+            """再帰的にタブとその子タブを検索"""
+            for tab in tabs_list:
+                tab_properties = tab.get('tabProperties', {})
+                if tab_properties.get('tabId') == target_tab_id:
+                    # タブが見つかった場合、そのタブのbodyからend_indexを取得
+                    document_tab = tab.get('documentTab', {})
+                    body = document_tab.get('body', {})
+                    content = body.get('content', [])
+                    
+                    end_index = 1  # デフォルト値
+                    for element in content:
+                        if 'endIndex' in element:
+                            end_index = max(end_index, element['endIndex'])
+                    
+                    return end_index
+                
+                # 子タブもチェック
+                child_tabs = tab.get('childTabs', [])
+                if child_tabs:
+                    result = find_tab_recursive(child_tabs)
+                    if result is not None:
+                        return result
+            
+            return None
+        
+        return find_tab_recursive(tabs)
 
 
 # MVP版テスト用の簡易関数
