@@ -433,22 +433,24 @@ class SimpleAudioRecognitionSystem:
                     
                     # 音声認識専用モード
                     if self.mvp_config.transcription_only:
-                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        # タイムスタンプに月日を追加（MM/DD HH:MM:SS 形式）
+                        timestamp = datetime.now().strftime("%m/%d %H:%M:%S")
                         
-                        # コンソール出力
-                        print(f"\n[{timestamp}] {self.mvp_config.speaker_name}:")
+                        # コンソール出力（ユーザー名削除）
+                        print(f"\n[{timestamp}]")
                         print(f"認識結果({self.mvp_config.source_lang}): {recognition_result}")
                         print("-" * 50)
                         
-                        # ファイル出力
+                        # ファイル出力（ユーザー名削除）
                         with open(self.transcription_log_path, "a", encoding="utf-8") as log_file:
                             log_file.write(f"[{timestamp}] {recognition_result}\n")
                         continue
                     
                     # 翻訳機能が無効な場合
                     if self.mvp_config.disable_translation:
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        print(f"\n[{timestamp}] {self.mvp_config.speaker_name}:")
+                        # タイムスタンプに月日を追加（アメリカ人・日本人両方に見やすい MM/DD HH:MM:SS 形式）
+                        timestamp = datetime.now().strftime("%m/%d %H:%M:%S")
+                        print(f"\n[{timestamp}]")
                         print(f"認識結果({self.mvp_config.source_lang}): {recognition_result}")
                         print("-" * 50)
                         continue
@@ -508,8 +510,9 @@ class SimpleAudioRecognitionSystem:
     
     def _print_result(self, translation_result: TranslationResult):
         """結果をコンソールに出力"""
-        timestamp = datetime.fromtimestamp(translation_result.timestamp).strftime("%H:%M:%S")
-        print(f"\n[{timestamp}] {self.mvp_config.speaker_name}:")
+        # タイムスタンプに月日を追加（アメリカ人・日本人両方に見やすい MM/DD HH:MM:SS 形式）
+        timestamp = datetime.fromtimestamp(translation_result.timestamp).strftime("%m/%d %H:%M:%S")
+        print(f"\n[{timestamp}]")
         print(f"({translation_result.source_lang}): {translation_result.original_text}")
         print(f"({translation_result.target_lang}): {translation_result.translated_text}")
         print("-" * 50)
@@ -747,8 +750,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         '--speaker-name', 
-        required=True,
-        help='発話者名'
+        default='Anonymous',
+        help='発話者名（デフォルト: Anonymous）※現在は表示に使用されません'
     )
     
     # オプション引数

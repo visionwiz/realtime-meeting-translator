@@ -663,11 +663,11 @@ class BasicGoogleDocsWriter:
         Returns:
             str: フォーマット済みテキスト
         """
-        # タイムスタンプは時刻のみ（日付部分は削除）
-        timestamp_str = entry.timestamp.strftime("%H:%M:%S")
+        # タイムスタンプに月日を追加
+        timestamp_str = entry.timestamp.strftime("%m/%d %H:%M:%S")
         
-        # フォールバック書き込み用：完全なフォーマット
-        formatted_text = f"""[{timestamp_str}] {entry.speaker_name}:
+        # ユーザー名を削除し、タイムスタンプのみで出力
+        formatted_text = f"""[{timestamp_str}]
 ({entry.source_lang}): {entry.original_text}
 ({entry.target_lang}): {entry.translated_text}
 
@@ -690,14 +690,12 @@ class BasicGoogleDocsWriter:
             return False
         
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        speaker = session_info.get('speaker_name', 'Unknown')
         source_lang = session_info.get('source_lang', 'unknown')
         target_lang = session_info.get('target_lang', 'unknown')
         
         header_text = f"""
 === Real-time Meeting Translation Session Started / リアルタイム会議翻訳セッション開始 ===
 Start Time / 開始時刻: {start_time}
-Speaker / 発話者: {speaker}
 Translation Direction / 翻訳方向: {source_lang} → {target_lang}
 =======================================
 
@@ -764,7 +762,6 @@ def test_google_docs_writer(document_id: str = None):
             
             # セッションヘッダーテスト
             session_info = {
-                'speaker_name': 'テストユーザー',
                 'source_lang': 'ja',
                 'target_lang': 'en'
             }

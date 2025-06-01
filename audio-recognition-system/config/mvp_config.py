@@ -26,7 +26,7 @@ class MVPConfig:
     # 言語設定（必須）
     source_lang: str
     target_lang: str
-    speaker_name: str
+    speaker_name: str = "Anonymous"  # デフォルト値を設定（表示には使用しない）
     
     # デバイス設定
     input_device: Optional[int] = 0  # デフォルト: Device 0（通常ヘッドセット）
@@ -134,9 +134,6 @@ class MVPConfig:
         if not self.target_lang:
             errors.append("翻訳先言語（target_lang）が指定されていません")
         
-        if not self.speaker_name:
-            errors.append("発話者名（speaker_name）が指定されていません")
-        
         if not self.disable_translation and not self.claude_api_key:
             errors.append("Claude APIキー（CLAUDE_API_KEY）が設定されていません")
         
@@ -212,7 +209,7 @@ def create_mvp_config_from_args(args) -> MVPConfig:
     config = MVPConfig(
         source_lang=args.source_lang,
         target_lang=args.target_lang,
-        speaker_name=args.speaker_name,
+        speaker_name=getattr(args, 'speaker_name', 'Anonymous'),  # オプション引数として処理
         speech_model=getattr(args, 'model', 'large-v3'),
         google_docs_id=getattr(args, 'google_docs_id', None),
         output_dir=getattr(args, 'output_dir', None),
@@ -240,8 +237,7 @@ def test_config():
     # テスト設定作成
     config = MVPConfig(
         source_lang="ja",
-        target_lang="en", 
-        speaker_name="テストユーザー"
+        target_lang="en"
     )
     
     # 設定表示
