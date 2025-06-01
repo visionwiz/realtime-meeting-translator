@@ -54,6 +54,10 @@ class MVPConfig:
     disable_docs_output: bool = False
     transcription_only: bool = False
     
+    # 録音ファイル関連設定（NEW）
+    audio_file_path: Optional[str] = None
+    playback_speed: float = 1.0
+    
     # ログ制御フラグ
     verbose: bool = False
     debug: bool = False
@@ -216,7 +220,10 @@ def create_mvp_config_from_args(args) -> MVPConfig:
         disable_docs_output=disable_docs_output,
         transcription_only=getattr(args, 'transcription_only', False),
         verbose=getattr(args, 'verbose', False),
-        debug=getattr(args, 'debug', False)
+        debug=getattr(args, 'debug', False),
+        # 録音ファイル関連（NEW）
+        audio_file_path=getattr(args, 'audio_file', None),
+        playback_speed=getattr(args, 'playback_speed', 1.0)
     )
     
     # input_deviceは明示的に指定された場合のみ上書き

@@ -36,6 +36,7 @@ import uuid
 
 # シンプル実装
 from audio.simple_capture import SimpleAudioCapture
+from audio.file_audio_capture import FileAudioCapture
 from recognition.speech_recognition import SimpleStreamingSpeechRecognition
 
 # 既存システムを再利用
@@ -129,16 +130,35 @@ class SimpleAudioRecognitionSystem:
             auth_state_callback=self._auth_state_callback  # 認証状態変更通知
         )
         
-        # シンプル音声キャプチャ（直接認識システムに送信）
+        # 音声キャプチャ初期化（リアルタイム or ファイル）
         # Google推奨: 100ms chunk @ 16kHz = 1600 samples
         chunk_size = int(mvp_config.sample_rate * 0.1)  # 100ms
-        self.audio_capture = SimpleAudioCapture(
-            callback_func=self.speech_recognition.add_audio_data,
-            input_device=mvp_config.input_device,
-            sample_rate=mvp_config.sample_rate,
-            chunk_size=chunk_size,
-            verbose=mvp_config.verbose
-        )
+        
+        # 録音ファイルモードかリアルタイムモードかを判定
+        if hasattr(mvp_config, 'audio_file_path') and mvp_config.audio_file_path:
+            # 録音ファイルモード
+            self.audio_capture = FileAudioCapture(
+                callback_func=self.speech_recognition.add_audio_data,
+                audio_file_path=mvp_config.audio_file_path,
+                sample_rate=mvp_config.sample_rate,
+                chunk_size=chunk_size,
+                realtime_speed=mvp_config.playback_speed,
+                verbose=mvp_config.verbose,
+                completion_callback=self._on_audio_file_completed  # 完了コールバック追加
+            )
+            self.is_file_mode = True
+            print(f"🎵 録音ファイルモード: {mvp_config.audio_file_path}")
+        else:
+            # リアルタイムモード（従来通り）
+            self.audio_capture = SimpleAudioCapture(
+                callback_func=self.speech_recognition.add_audio_data,
+                input_device=mvp_config.input_device,
+                sample_rate=mvp_config.sample_rate,
+                chunk_size=chunk_size,
+                verbose=mvp_config.verbose
+            )
+            self.is_file_mode = False
+            print(f"🎤 リアルタイムモード: デバイス {mvp_config.input_device}")
         
         # 翻訳システム（既存再利用）
         self.translator = None
@@ -688,6 +708,11 @@ class SimpleAudioRecognitionSystem:
                 if self.system_state == SystemState.AUTHENTICATING:
                     self.system_state = SystemState.ACTIVE
 
+    def _on_audio_file_completed(self):
+        """音声ファイル再生完了時のコールバック"""
+        print("🎵 録音ファイル再生完了")
+        self._shutdown_system()
+
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """コマンドライン引数パーサーを作成（既存再利用）"""
@@ -727,6 +752,18 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--output-dir', 
         help='ログ出力ディレクトリ'
+    )
+    
+    # 録音ファイル関連オプション（NEW）
+    parser.add_argument(
+        '--audio-file', 
+        help='録音済み音声ファイルのパス（WAV, MP3, FLAC, M4A, OGG等）'
+    )
+    parser.add_argument(
+        '--playback-speed', 
+        type=float,
+        default=1.0,
+        help='録音ファイル再生速度倍率（デフォルト: 1.0）テスト高速化: 2.0等'
     )
     
     # 機能無効化オプション
